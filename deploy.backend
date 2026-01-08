@@ -1,0 +1,31 @@
+#!/bin/bash
+set -e
+
+echo "🚀 Deploying BACKEND API..."
+
+APP_DIR="/var/www/solution-backend"
+APP_NAME="solution-backend"
+
+cd $APP_DIR || { echo "❌ Folder tidak ditemukan!"; exit 1; }
+
+echo "📥 Pull latest code..."
+git pull origin main
+
+echo "📦 Install production dependencies..."
+NODE_ENV=production npm install --production
+
+echo "♻️ Restart backend with PM2..."
+
+if pm2 list | grep -q "$APP_NAME"; then
+  pm2 restart $APP_NAME --update-env
+else
+  pm2 start app.js --name $APP_NAME
+fi
+
+echo "💾 Saving PM2 process list..."
+pm2 save
+
+echo "📊 PM2 status:"
+pm2 status
+
+echo "✅ Backend deployed successfully!"
