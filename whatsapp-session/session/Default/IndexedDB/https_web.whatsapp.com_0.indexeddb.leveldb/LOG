@@ -1,15 +1,15 @@
-2026/01/11-16:17:10.046 1b94 Reusing MANIFEST C:\codingVibes\nuansasolution\.mainweb\payments\solution-backend\whatsapp-session\session\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
-2026/01/11-16:17:10.060 1b94 Recovering log #1276
-2026/01/11-16:17:10.294 1b94 Reusing old log C:\codingVibes\nuansasolution\.mainweb\payments\solution-backend\whatsapp-session\session\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/001276.log 
-2026/01/11-16:17:14.220 5340 Level-0 table #1282: started
-2026/01/11-16:17:14.698 5340 Level-0 table #1282: 852083 bytes OK
-2026/01/11-16:17:14.713 5340 Delete type=0 #1276
-2026/01/11-16:17:14.745 1b94 Manual compaction at level-0 from ' \xa6\x01\x00\x00\x00' @ 72057594037927935 : 1 .. ' \xa7\x01\x00\x00\x00' @ 0 : 0; will stop at (end)
-2026/01/11-16:17:15.073 15a4 Compacting 1@1 + 2@2 files
-2026/01/11-16:17:15.593 15a4 Generated table #1283@1: 37292 keys, 2208334 bytes
-2026/01/11-16:17:15.720 15a4 Generated table #1284@1: 48648 keys, 1997947 bytes
-2026/01/11-16:17:15.721 15a4 Compacted 1@1 + 2@2 files => 4206281 bytes
-2026/01/11-16:17:15.723 15a4 compacted to: files[ 0 0 2 0 0 0 0 ]
-2026/01/11-16:17:15.724 15a4 Delete type=2 #1278
-2026/01/11-16:17:15.724 15a4 Delete type=2 #1279
-2026/01/11-16:17:15.725 15a4 Delete type=2 #1282
+2026/01/11-16:53:16.879 5b14 Reusing MANIFEST C:\codingVibes\nuansasolution\.mainweb\payments\solution-backend\whatsapp-session\session\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2026/01/11-16:53:16.880 5b14 Recovering log #1286
+2026/01/11-16:53:16.896 5b14 Reusing old log C:\codingVibes\nuansasolution\.mainweb\payments\solution-backend\whatsapp-session\session\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/001286.log 
+2026/01/11-16:53:18.413 2048 Level-0 table #1292: started
+2026/01/11-16:53:18.433 2048 Level-0 table #1292: 176464 bytes OK
+2026/01/11-16:53:18.437 2048 Delete type=0 #1286
+2026/01/11-16:53:18.439 5b14 Manual compaction at level-0 from ' \xa8\x01\x00\x00\x00' @ 72057594037927935 : 1 .. ' \xa9\x01\x00\x00\x00' @ 0 : 0; will stop at (end)
+2026/01/11-16:53:18.535 2048 Compacting 1@1 + 2@2 files
+2026/01/11-16:53:18.782 2048 Generated table #1293@1: 38635 keys, 2208273 bytes
+2026/01/11-16:53:18.900 2048 Generated table #1294@1: 48704 keys, 2032010 bytes
+2026/01/11-16:53:18.900 2048 Compacted 1@1 + 2@2 files => 4240283 bytes
+2026/01/11-16:53:18.905 2048 compacted to: files[ 0 0 2 0 0 0 0 ]
+2026/01/11-16:53:18.912 2048 Delete type=2 #1288
+2026/01/11-16:53:18.912 2048 Delete type=2 #1289
+2026/01/11-16:53:18.912 2048 Delete type=2 #1292
