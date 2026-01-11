@@ -1,347 +1,461 @@
 // =========================================
-// FILE: controllers/authController.js
-// UPDATED - With WhatsApp OTP Integration
+// FILE: controllers/authController.js - UPDATED
+// Enhanced with Phone Validation + WhatsApp Notifications
 // =========================================
 
 const db = require('../config/db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { generateOtp } = require('../utils/otp');
 const { v4: uuid } = require('uuid');
+const Logger = require('../utils/logger');
+const OTPValidator = require('../utils/otpValidator');
 const whatsappClient = require('../utils/whatsappClient');
+const { WhatsAppTemplates } = require('../utils/whatsappTemplates');
 
 /**
- * REGISTER (Updated with WhatsApp OTP)
+ * REGISTER
+ * POST /api/auth/register
  */
 exports.register = async (req, res) => {
-  const { name, email, phone, password } = req.body;
+  try {
+    const { name, email, phone, password } = req.body;
 
-  if (!name || !email || !phone || !password) {
-    return res.status(400).json({ 
-      success: false,
-      message: 'Data tidak lengkap' 
-    });
-  }
-
-  // Validate phone number format (basic)
-  const phoneRegex = /^(\+62|62|0)[0-9]{9,12}$/;
-  if (!phoneRegex.test(phone)) {
-    return res.status(400).json({
-      success: false,
-      message: 'Format nomor telepon tidak valid. Gunakan format: 08xxx atau +628xxx'
-    });
-  }
-
-  const hash = bcrypt.hashSync(password, 10);
-
-  db.query(
-    'INSERT INTO users (name,email,phone,password) VALUES (?,?,?,?)',
-    [name, email, phone, hash],
-    async (err, result) => {
-      if (err) {
-        if (err.code === 'ER_DUP_ENTRY') {
-          return res.status(400).json({ 
-            success: false,
-            message: 'Email sudah terdaftar' 
-          });
-        }
-        return res.status(500).json({
-          success: false,
-          message: 'Database error',
-          error: err
-        });
-      }
-
-      const userId = result.insertId;
-      const otp = generateOtp();
-
-      // Save OTP to database
-      db.query(
-        `INSERT INTO otp_verifications 
-         (user_id, otp_code, expired_at)
-         VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 5 MINUTE))`,
-        [userId, otp],
-        async (otpErr) => {
-          if (otpErr) {
-            console.error('Error saving OTP:', otpErr);
-          }
-
-          // Try to send OTP via WhatsApp
-          let whatsappSent = false;
-          let whatsappError = null;
-
-          try {
-            if (whatsappClient.isReady) {
-              await whatsappClient.sendOTP(phone, otp, name);
-              whatsappSent = true;
-              console.log(`✅ WhatsApp OTP sent to ${phone}`);
-            } else {
-              whatsappError = 'WhatsApp bot is not connected';
-              console.log(`⚠️ WhatsApp not ready, OTP: ${otp}`);
-            }
-          } catch (waError) {
-            whatsappError = waError.message;
-            console.error('❌ WhatsApp send error:', waError.message);
-          }
-
-          // Create trial package
-          db.query(
-            `SELECT id, duration_days 
-             FROM packages 
-             WHERE is_trial = 1 AND is_active = 1 
-             LIMIT 1`,
-            (err, rows) => {
-              if (!err && rows.length) {
-                const trial = rows[0];
-                db.query(
-                  `INSERT INTO user_tokens
-                   (user_id, package_id, token, activated_at, expired_at, is_active, is_trial)
-                   VALUES (?, ?, ?, NOW(), DATE_ADD(NOW(), INTERVAL ? DAY), 1, 1)`,
-                  [userId, trial.id, uuid(), trial.duration_days]
-                );
-              }
-            }
-          );
-
-          // Send response
-          if (whatsappSent) {
-            res.json({
-              success: true,
-              message: 'Registrasi berhasil! Kode OTP telah dikirim ke WhatsApp Anda.',
-              otpSent: true,
-              viaWhatsApp: true
-            });
-          } else {
-            // If WhatsApp fails, still allow registration but inform user
-            res.json({
-              success: true,
-              message: 'Registrasi berhasil! OTP: ' + otp + ' (WhatsApp tidak tersedia)',
-              otpSent: false,
-              viaWhatsApp: false,
-              whatsappError: whatsappError,
-              otp: otp // Only for development/testing
-            });
-          }
-        }
-      );
+    // Validation
+    if (!name || !email || !phone || !password) {
+      Logger.auth('REGISTER_FAILED', 'Missing required fields', { email, phone });
+      return res.status(400).json({
+        success: false,
+        message: 'Data tidak lengkap'
+      });
     }
-  );
+
+    // Validate phone format
+    const phoneRegex = /^(\+62|62|0)[0-9]{9,12}$/;
+    if (!phoneRegex.test(phone)) {
+      Logger.auth('REGISTER_FAILED', 'Invalid phone format', { phone });
+      return res.status(400).json({
+        success: false,
+        message: 'Format nomor WhatsApp tidak valid. Gunakan format: 08xxx atau +628xxx'
+      });
+    }
+
+    Logger.auth('REGISTER_ATTEMPT', `Email: ${email}, Phone: ${phone}`);
+
+    // ✅ CHECK: Email already exists
+    const [existingEmail] = await db.query(
+      'SELECT id FROM users WHERE email = ?',
+      [email]
+    );
+
+    if (existingEmail.length > 0) {
+      Logger.auth('REGISTER_FAILED', 'Email already exists', { email });
+      return res.status(400).json({
+        success: false,
+        message: 'Email sudah terdaftar'
+      });
+    }
+
+    // ✅ CHECK: Phone already exists (CRITICAL)
+    const [existingPhone] = await db.query(
+      'SELECT id, name FROM users WHERE phone = ?',
+      [phone]
+    );
+
+    if (existingPhone.length > 0) {
+      Logger.auth('REGISTER_FAILED', 'Phone already registered', { phone });
+      return res.status(400).json({
+        success: false,
+        message: 'Nomor WhatsApp sudah terdaftar. Silakan gunakan nomor WhatsApp yang lain.'
+      });
+    }
+
+    // Hash password
+    const hashedPassword = bcrypt.hashSync(password, 10);
+
+    // Insert user
+    const [result] = await db.query(
+      'INSERT INTO users (name, email, phone, password) VALUES (?, ?, ?, ?)',
+      [name, email, phone, hashedPassword]
+    );
+
+    const userId = result.insertId;
+
+    Logger.auth('REGISTER_SUCCESS', `User created: ${userId}`, { email, phone });
+
+    // Check rate limit
+    const rateLimit = await OTPValidator.checkRateLimit(userId);
+    if (rateLimit.limited) {
+      return res.status(429).json({
+        success: false,
+        message: rateLimit.message
+      });
+    }
+
+    // Generate OTP
+    const { otp } = await OTPValidator.createOTP(userId, 'verify');
+
+    // Send OTP via WhatsApp
+    let whatsappSent = false;
+    let whatsappError = null;
+
+    try {
+      if (whatsappClient.isReady) {
+        const message = WhatsAppTemplates.registrationOTP(name, otp);
+        await whatsappClient.sendMessage(phone, message);
+        whatsappSent = true;
+
+        Logger.whatsapp('REGISTRATION_OTP', `OTP sent to ${phone}`, { userId });
+      } else {
+        whatsappError = 'WhatsApp bot is not connected';
+        Logger.whatsapp('OTP_FAILED', 'WhatsApp not ready', { phone });
+      }
+    } catch (error) {
+      whatsappError = error.message;
+      Logger.error('WHATSAPP', 'Failed to send registration OTP', error);
+    }
+
+    // Create trial package
+    const [trialPackages] = await db.query(
+      'SELECT id, duration_days, name FROM packages WHERE is_trial = 1 AND is_active = 1 LIMIT 1'
+    );
+
+    if (trialPackages.length > 0) {
+      const trial = trialPackages[0];
+      
+      await db.query(
+        `INSERT INTO user_tokens
+         (user_id, package_id, token, activated_at, expired_at, is_active, is_trial)
+         VALUES (?, ?, ?, NOW(), DATE_ADD(NOW(), INTERVAL ? DAY), 1, 1)`,
+        [userId, trial.id, uuid(), trial.duration_days]
+      );
+
+      Logger.info('TRIAL', `Trial package activated for user ${userId}`, { packageName: trial.name });
+    }
+
+    // Response
+    res.json({
+      success: true,
+      message: whatsappSent
+        ? 'Registrasi berhasil! Kode OTP telah dikirim ke WhatsApp Anda.'
+        : `Registrasi berhasil! Kode OTP: ${otp}`,
+      otpSent: whatsappSent,
+      viaWhatsApp: whatsappSent,
+      whatsappError: whatsappError,
+      // Only in development
+      ...(process.env.NODE_ENV === 'development' && { otp })
+    });
+
+  } catch (error) {
+    Logger.error('AUTH', 'Register error', error);
+    res.status(500).json({
+      success: false,
+      message: 'Terjadi kesalahan server'
+    });
+  }
 };
 
 /**
  * VERIFY OTP
+ * POST /api/auth/verify-otp
  */
-exports.verifyOtp = (req, res) => {
-  const { email, otp } = req.body;
+exports.verifyOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
 
-  db.query(
-    `SELECT o.id, o.user_id
-     FROM otp_verifications o
-     JOIN users u ON u.id = o.user_id
-     WHERE u.email = ?
-       AND o.otp_code = ?
-       AND o.is_used = 0
-       AND o.expired_at > NOW()`,
-    [email, otp],
-    (err, rows) => {
-      if (err || !rows.length) {
-        return res.status(400).json({ 
-          success: false,
-          message: 'OTP tidak valid atau sudah kadaluarsa' 
-        });
-      }
-
-      const data = rows[0];
-
-      db.query('UPDATE otp_verifications SET is_used = 1 WHERE id = ?', [data.id]);
-      db.query('UPDATE users SET is_verified = 1 WHERE id = ?', [data.user_id]);
-
-      res.json({ 
-        success: true,
-        message: 'OTP berhasil diverifikasi' 
+    if (!email || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email dan OTP diperlukan'
       });
     }
-  );
+
+    Logger.auth('VERIFY_OTP_ATTEMPT', `Email: ${email}`);
+
+    // Find user
+    const [users] = await db.query(
+      'SELECT id, name, phone FROM users WHERE email = ?',
+      [email]
+    );
+
+    if (users.length === 0) {
+      Logger.auth('VERIFY_OTP_FAILED', 'User not found', { email });
+      return res.status(404).json({
+        success: false,
+        message: 'User tidak ditemukan'
+      });
+    }
+
+    const user = users[0];
+
+    // Verify OTP
+    const verification = await OTPValidator.verifyOTP(user.id, otp, 'verify');
+
+    if (!verification.valid) {
+      Logger.auth('VERIFY_OTP_FAILED', verification.message, { userId: user.id });
+      return res.status(400).json({
+        success: false,
+        message: verification.message
+      });
+    }
+
+    // Update user as verified
+    await db.query(
+      'UPDATE users SET is_verified = 1 WHERE id = ?',
+      [user.id]
+    );
+
+    Logger.auth('VERIFY_OTP_SUCCESS', `User verified: ${user.id}`);
+
+    // Send welcome message
+    try {
+      if (whatsappClient.isReady) {
+        // Get trial package name
+        const [tokens] = await db.query(
+          `SELECT p.name 
+           FROM user_tokens ut
+           JOIN packages p ON p.id = ut.package_id
+           WHERE ut.user_id = ? AND ut.is_trial = 1 AND ut.is_active = 1
+           LIMIT 1`,
+          [user.id]
+        );
+
+        const packageName = tokens.length > 0 ? tokens[0].name : 'Trial 3 Hari';
+        const message = WhatsAppTemplates.welcome(user.name, packageName);
+        
+        await whatsappClient.sendMessage(user.phone, message);
+
+        Logger.whatsapp('WELCOME', `Welcome message sent to ${user.phone}`, { userId: user.id });
+      }
+    } catch (error) {
+      Logger.error('WHATSAPP', 'Failed to send welcome message', error);
+    }
+
+    res.json({
+      success: true,
+      message: 'OTP berhasil diverifikasi'
+    });
+
+  } catch (error) {
+    Logger.error('AUTH', 'Verify OTP error', error);
+    res.status(500).json({
+      success: false,
+      message: 'Terjadi kesalahan server'
+    });
+  }
 };
 
 /**
- * RESEND OTP (New)
+ * RESEND OTP
+ * POST /api/auth/resend-otp
  */
 exports.resendOtp = async (req, res) => {
-  const { email } = req.body;
+  try {
+    const { email } = req.body;
 
-  if (!email) {
-    return res.status(400).json({
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email diperlukan'
+      });
+    }
+
+    Logger.auth('RESEND_OTP_ATTEMPT', `Email: ${email}`);
+
+    const [users] = await db.query(
+      'SELECT id, name, phone, is_verified FROM users WHERE email = ?',
+      [email]
+    );
+
+    if (users.length === 0) {
+      Logger.auth('RESEND_OTP_FAILED', 'User not found', { email });
+      return res.status(404).json({
+        success: false,
+        message: 'User tidak ditemukan'
+      });
+    }
+
+    const user = users[0];
+
+    if (user.is_verified) {
+      return res.status(400).json({
+        success: false,
+        message: 'User sudah terverifikasi'
+      });
+    }
+
+    // Check rate limit
+    const rateLimit = await OTPValidator.checkRateLimit(user.id);
+    if (rateLimit.limited) {
+      return res.status(429).json({
+        success: false,
+        message: rateLimit.message
+      });
+    }
+
+    // Generate new OTP
+    const { otp } = await OTPValidator.createOTP(user.id, 'verify');
+
+    // Send via WhatsApp
+    let whatsappSent = false;
+    let whatsappError = null;
+
+    try {
+      if (whatsappClient.isReady) {
+        const message = WhatsAppTemplates.registrationOTP(user.name, otp);
+        await whatsappClient.sendMessage(user.phone, message);
+        whatsappSent = true;
+
+        Logger.whatsapp('RESEND_OTP', `OTP resent to ${user.phone}`, { userId: user.id });
+      } else {
+        whatsappError = 'WhatsApp bot is not connected';
+        Logger.whatsapp('RESEND_OTP_FAILED', 'WhatsApp not ready');
+      }
+    } catch (error) {
+      whatsappError = error.message;
+      Logger.error('WHATSAPP', 'Failed to resend OTP', error);
+    }
+
+    res.json({
+      success: true,
+      message: whatsappSent
+        ? 'OTP baru telah dikirim ke WhatsApp Anda'
+        : `OTP baru: ${otp}`,
+      otpSent: whatsappSent,
+      viaWhatsApp: whatsappSent,
+      whatsappError: whatsappError,
+      ...(process.env.NODE_ENV === 'development' && { otp })
+    });
+
+  } catch (error) {
+    Logger.error('AUTH', 'Resend OTP error', error);
+    res.status(500).json({
       success: false,
-      message: 'Email diperlukan'
+      message: 'Terjadi kesalahan server'
     });
   }
-
-  db.query(
-    'SELECT id, name, phone, is_verified FROM users WHERE email = ?',
-    [email],
-    async (err, rows) => {
-      if (err || !rows.length) {
-        return res.status(404).json({
-          success: false,
-          message: 'User tidak ditemukan'
-        });
-      }
-
-      const user = rows[0];
-
-      if (user.is_verified) {
-        return res.status(400).json({
-          success: false,
-          message: 'User sudah terverifikasi'
-        });
-      }
-
-      // Generate new OTP
-      const otp = generateOtp();
-
-      // Invalidate old OTPs
-      db.query(
-        'UPDATE otp_verifications SET is_used = 1 WHERE user_id = ? AND is_used = 0',
-        [user.id]
-      );
-
-      // Insert new OTP
-      db.query(
-        `INSERT INTO otp_verifications 
-         (user_id, otp_code, expired_at)
-         VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 5 MINUTE))`,
-        [user.id, otp],
-        async (otpErr) => {
-          if (otpErr) {
-            return res.status(500).json({
-              success: false,
-              message: 'Gagal membuat OTP baru'
-            });
-          }
-
-          // Try to send via WhatsApp
-          let whatsappSent = false;
-          let whatsappError = null;
-
-          try {
-            if (whatsappClient.isReady) {
-              await whatsappClient.sendOTP(user.phone, otp, user.name);
-              whatsappSent = true;
-              console.log(`✅ Resent WhatsApp OTP to ${user.phone}`);
-            } else {
-              whatsappError = 'WhatsApp bot is not connected';
-              console.log(`⚠️ WhatsApp not ready, OTP: ${otp}`);
-            }
-          } catch (waError) {
-            whatsappError = waError.message;
-            console.error('❌ WhatsApp send error:', waError.message);
-          }
-
-          if (whatsappSent) {
-            res.json({
-              success: true,
-              message: 'OTP baru telah dikirim ke WhatsApp Anda',
-              otpSent: true,
-              viaWhatsApp: true
-            });
-          } else {
-            res.json({
-              success: true,
-              message: 'OTP baru: ' + otp + ' (WhatsApp tidak tersedia)',
-              otpSent: false,
-              viaWhatsApp: false,
-              whatsappError: whatsappError,
-              otp: otp // Only for development
-            });
-          }
-        }
-      );
-    }
-  );
 };
 
 /**
  * LOGIN
+ * POST /api/auth/login
  */
-exports.login = (req, res) => {
-  const { email, password } = req.body;
+exports.login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
 
-  db.query(
-    'SELECT * FROM users WHERE email = ?',
-    [email],
-    (err, rows) => {
-      if (err || !rows.length) {
-        return res.status(404).json({ 
-          success: false,
-          message: 'User tidak ditemukan' 
-        });
-      }
-
-      const user = rows[0];
-
-      if (!bcrypt.compareSync(password, user.password)) {
-        return res.status(401).json({ 
-          success: false,
-          message: 'Password salah' 
-        });
-      }
-
-      const token = jwt.sign(
-        {
-          id: user.id,
-          email: user.email,
-          role: 'user'
-        },
-        process.env.JWT_SECRET,
-        { expiresIn: '7d' }
-      );
-
-      res.json({ 
-        success: true,
-        token 
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email dan password diperlukan'
       });
     }
-  );
+
+    Logger.auth('LOGIN_ATTEMPT', `Email: ${email}`);
+
+    const [users] = await db.query(
+      'SELECT id, name, email, phone, password, is_verified FROM users WHERE email = ?',
+      [email]
+    );
+
+    if (users.length === 0) {
+      Logger.auth('LOGIN_FAILED', 'User not found', { email });
+      return res.status(404).json({
+        success: false,
+        message: 'User tidak ditemukan'
+      });
+    }
+
+    const user = users[0];
+
+    if (!bcrypt.compareSync(password, user.password)) {
+      Logger.auth('LOGIN_FAILED', 'Wrong password', { userId: user.id });
+      return res.status(401).json({
+        success: false,
+        message: 'Password salah'
+      });
+    }
+
+    // Generate token
+    const token = jwt.sign(
+      {
+        id: user.id,
+        email: user.email,
+        role: 'user'
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    Logger.auth('LOGIN_SUCCESS', `User logged in: ${user.id}`);
+
+    // Send login alert
+    try {
+      if (whatsappClient.isReady && user.is_verified) {
+        const time = new Date().toLocaleString('id-ID');
+        const message = WhatsAppTemplates.loginAlert(user.name, time);
+        
+        await whatsappClient.sendMessage(user.phone, message);
+
+        Logger.whatsapp('LOGIN_ALERT', `Alert sent to ${user.phone}`, { userId: user.id });
+      }
+    } catch (error) {
+      Logger.error('WHATSAPP', 'Failed to send login alert', error);
+    }
+
+    res.json({
+      success: true,
+      token
+    });
+
+  } catch (error) {
+    Logger.error('AUTH', 'Login error', error);
+    res.status(500).json({
+      success: false,
+      message: 'Terjadi kesalahan server'
+    });
+  }
 };
 
 /**
  * ME
+ * GET /api/auth/me
  */
-exports.me = (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).json({ 
-      success: false,
-      message: 'Token missing' 
-    });
-  }
-
-  const token = authHeader.split(' ')[1];
-
+exports.me = async (req, res) => {
   try {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader) {
+      return res.status(401).json({
+        success: false,
+        message: 'Token missing'
+      });
+    }
+
+    const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    db.query(
+    const [users] = await db.query(
       'SELECT id, name, email, phone, is_verified FROM users WHERE id = ?',
-      [decoded.id],
-      (err, rows) => {
-        if (err || !rows.length) {
-          return res.status(404).json({ 
-            success: false,
-            message: 'User not found' 
-          });
-        }
-        res.json({
-          success: true,
-          user: rows[0]
-        });
-      }
+      [decoded.id]
     );
-  } catch {
-    res.status(401).json({ 
+
+    if (users.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      user: users[0]
+    });
+
+  } catch (error) {
+    Logger.error('AUTH', 'Get user error', error);
+    res.status(401).json({
       success: false,
-      message: 'Invalid token' 
+      message: 'Invalid token'
     });
   }
 };

@@ -1,18 +1,23 @@
 // =========================================
-// FILE: utils/whatsappClient.js
-// WhatsApp Client Setup with qrcode-terminal
+// FILE: utils/whatsappClient.js - UPDATED
+// Enhanced with Template Message Methods
 // =========================================
 
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
+const Logger = require('./logger');
+const { WhatsAppTemplates } = require('./whatsappTemplates'); 
 
 class WhatsAppClient {
   constructor() {
     this.client = null;
     this.isReady = false;
     this.qrCode = null;
-    this.status = 'disconnected'; // disconnected, qr, connecting, ready
-    this.io = null; // Socket.IO instance
+    this.status = 'disconnected';
+    this.io = null;
+    this.initialized = false;
+    this.initializing = false;
+    this.manualDisconnect = false;
   }
 
   /**
@@ -20,6 +25,12 @@ class WhatsAppClient {
    */
   initialize(io) {
     this.io = io;
+    if (this.initializing || this.initialized) {
+      Logger.whatsapp('SKIP_INIT', 'WhatsApp already initialized');
+      return;
+    }
+    this.initializing = true;
+
 
     this.client = new Client({
       authStrategy: new LocalAuth({
@@ -29,154 +40,177 @@ class WhatsAppClient {
         headless: true,
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
         args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--disable-gpu'
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--disable-gpu'
         ]
-        }
-
+      }
     });
 
     // QR Code generated
     this.client.on('qr', async (qr) => {
-      console.log('📱 QR Code received, scan to connect WhatsApp');
-      this.status = 'qr';
-      
-      try {
-        // Generate QR code as data URL
-        this.qrCode = await qrcode.toDataURL(qr);
-        
-        // Emit to all connected admin clients
-        if (this.io) {
-          this.io.emit('whatsapp-qr', {
+        if (this.qrCode) return; // prevent duplicate QR
+
+        Logger.whatsapp('QR_GENERATED', 'QR Code generated');
+        this.status = 'qr';
+
+        try {
+          this.qrCode = await qrcode.toDataURL(qr);
+
+          this.io?.emit('whatsapp-qr', {
             qr: this.qrCode,
             status: 'qr'
           });
+        } catch (err) {
+          Logger.error('WHATSAPP', 'Error generating QR code', err);
         }
-      } catch (err) {
-        console.error('Error generating QR code:', err);
-      }
-    });
+      });
+
 
     // Client is ready
     this.client.on('ready', () => {
-      console.log('✅ WhatsApp Client is ready!');
+      Logger.whatsapp('READY', 'WhatsApp Client is ready');
+
       this.isReady = true;
       this.status = 'ready';
       this.qrCode = null;
+      this.initialized = true;
+      this.initializing = false;
 
-      if (this.io) {
-        this.io.emit('whatsapp-status', {
-          status: 'ready',
-          message: 'WhatsApp connected successfully'
-        });
-      }
+      this.io?.emit('whatsapp-status', this.getStatus());
     });
+
 
     // Authentication successful
     this.client.on('authenticated', () => {
-      console.log('🔐 WhatsApp authenticated');
+      Logger.whatsapp('AUTHENTICATED', 'WhatsApp authenticated');
+
       this.status = 'connecting';
-      
-      if (this.io) {
-        this.io.emit('whatsapp-status', {
-          status: 'connecting',
-          message: 'Authenticating...'
-        });
-      }
+      this.qrCode = null;
+      this.initializing = false;
+
+      this.io?.emit('whatsapp-status', this.getStatus());
     });
+
+
 
     // Authentication failure
-    this.client.on('auth_failure', (msg) => {
-      console.error('❌ WhatsApp authentication failed:', msg);
-      this.status = 'disconnected';
-      this.isReady = false;
+    this.client.on('auth_failure', async (msg) => {
+      Logger.error('WHATSAPP', 'Authentication failed', { message: msg });
 
-      if (this.io) {
-        this.io.emit('whatsapp-status', {
-          status: 'error',
-          message: 'Authentication failed. Please try again.'
-        });
+      try {
+        await this.client?.destroy();
+      } catch (e) {
+        Logger.error('WHATSAPP', 'Destroy failed', e);
       }
-    });
 
-    // Client disconnected
-    this.client.on('disconnected', (reason) => {
-      console.log('⚠️ WhatsApp Client disconnected:', reason);
+      this.client = null;
       this.status = 'disconnected';
       this.isReady = false;
       this.qrCode = null;
+      this.initialized = false;
+      this.initializing = false;
 
-      if (this.io) {
-        this.io.emit('whatsapp-status', {
-          status: 'disconnected',
-          message: 'WhatsApp disconnected'
-        });
+      this.io?.emit('whatsapp-status', {
+        status: 'error',
+        message: 'Authentication failed. Please try again.'
+      });
+    });
+
+
+    // Client disconnected
+    this.client.on('disconnected', (reason) => {
+      Logger.whatsapp('DISCONNECTED', `WhatsApp disconnected: ${reason}`);
+
+      this.status = 'disconnected';
+      this.isReady = false;
+      this.qrCode = null;
+      this.initialized = false;
+
+      this.io?.emit('whatsapp-status', this.getStatus());
+
+      if (!this.initializing && !this.manualDisconnect) {
+        setTimeout(() => {
+          this.restart(this.io);
+        }, 5000);
       }
     });
 
-    // Initialize the client
+
+    // Initialize
     this.client.initialize();
+    Logger.whatsapp('INITIALIZING', 'WhatsApp client initializing...');
+    this.manualDisconnect = false;
   }
 
   /**
-   * Send OTP message to WhatsApp number
+   * Format phone number to WhatsApp format
    */
-  async sendOTP(phoneNumber, otpCode, userName) {
+  formatPhoneNumber(phoneNumber) {
+    let formattedNumber = phoneNumber.replace(/[^0-9]/g, '');
+
+    if (!formattedNumber.startsWith('62')) {
+      if (formattedNumber.startsWith('0')) {
+        formattedNumber = '62' + formattedNumber.substring(1);
+      } else {
+        formattedNumber = '62' + formattedNumber;
+      }
+    }
+
+    return formattedNumber;
+  }
+
+  /**
+   * Send message to WhatsApp number
+   */
+  async sendMessage(phoneNumber, message) {
     if (!this.isReady) {
       throw new Error('WhatsApp client is not ready');
     }
+    if (!message || !message.trim()) {
+      throw new Error('Message is empty');
+    }
+
 
     try {
-      // Format phone number (remove +, spaces, dashes)
-      let formattedNumber = phoneNumber.replace(/[^0-9]/g, '');
-      
-      // Add country code if not present (default to Indonesia)
-      if (!formattedNumber.startsWith('62')) {
-        if (formattedNumber.startsWith('0')) {
-          formattedNumber = '62' + formattedNumber.substring(1);
-        } else {
-          formattedNumber = '62' + formattedNumber;
-        }
-      }
-
-      // WhatsApp ID format
+      const formattedNumber = this.formatPhoneNumber(phoneNumber);
       const chatId = formattedNumber + '@c.us';
 
-      // Check if number exists on WhatsApp
+      // Check if number exists
       const isRegistered = await this.client.isRegisteredUser(chatId);
-      
+
       if (!isRegistered) {
+        Logger.error('WHATSAPP', 'Number not registered on WhatsApp', { phoneNumber: formattedNumber });
         throw new Error('Number is not registered on WhatsApp');
       }
 
-      // Send OTP message
-      const message = `🔐 *Gateway SOLUTION - Verification Code*\n\n` +
-                     `Hello ${userName || 'User'}! 👋\n\n` +
-                     `Your OTP verification code is:\n\n` +
-                     `*${otpCode}*\n\n` +
-                     `⏰ This code is valid for 5 minutes.\n` +
-                     `🔒 Please do not share this code with anyone.\n\n` +
-                     `If you didn't request this code, please ignore this message.\n\n` +
-                     `_Gateway SOLUTION Team_`;
-
+      // Send message
       await this.client.sendMessage(chatId, message);
 
-      console.log(`✅ OTP sent to ${formattedNumber}`);
+      Logger.whatsapp('MESSAGE_SENT', `Message sent to ${formattedNumber}`);
+
       return {
         success: true,
-        message: 'OTP sent successfully',
+        message: 'Message sent successfully',
         formattedNumber
       };
 
     } catch (error) {
-      console.error('❌ Error sending OTP:', error);
+      Logger.error('WHATSAPP', 'Error sending message', error);
       throw error;
     }
+  }
+
+  /**
+   * Send OTP message (legacy support)
+  */
+  async sendOTP(phoneNumber, otpCode, userName) {
+    const message = WhatsAppTemplates.registrationOTP(userName, otpCode);
+    return this.sendMessage(phoneNumber, message);
   }
 
   /**
@@ -194,19 +228,33 @@ class WhatsAppClient {
    * Disconnect WhatsApp client
    */
   async disconnect() {
-    if (this.client) {
+    if (!this.client) return;
+
+    try {
       await this.client.destroy();
-      this.isReady = false;
-      this.status = 'disconnected';
-      this.qrCode = null;
-      console.log('🔌 WhatsApp Client disconnected');
+    } catch (e) {
+      Logger.error('WHATSAPP', 'Error on destroy', e);
     }
+
+    this.client = null;
+    this.isReady = false;
+    this.status = 'disconnected';
+    this.qrCode = null;
+    this.initialized = false;
+    this.initializing = false;
+    this.manualDisconnect = true;
+
+    Logger.whatsapp('DISCONNECT', 'WhatsApp Client disconnected');
   }
+
 
   /**
    * Restart WhatsApp client
    */
   async restart(io) {
+    if (this.initializing) return;
+
+    Logger.whatsapp('RESTART', 'Restarting WhatsApp client...');
     await this.disconnect();
     setTimeout(() => {
       this.initialize(io);

@@ -14,49 +14,66 @@ const featureAccessController = require('../controllers/featureAccessController'
 // ================================
 // GET CURRENT USER PROFILE
 // ================================
-router.get('/me', authMiddleware, (req, res) => {
-  const query = `
-    SELECT 
-      id,
-      name,
-      email,
-      phone,
-      is_verified,
-      created_at
-    FROM users
-    WHERE id = ?
-  `;
+router.get('/me', authMiddleware, async (req, res) => {
+  try {
+    const query = `
+      SELECT id, name, email, phone, is_verified, created_at
+      FROM users
+      WHERE id = ?
+    `;
 
-  db.query(query, [req.user.id], (err, rows) => {
-    if (err) return res.status(500).json({ message: err.message });
+    const [rows] = await db.query(query, [req.user.id]);
+
     if (!rows.length) {
       return res.status(404).json({ message: 'User not found' });
     }
-    res.json(rows[0]);
-  });
+
+    res.json({
+      success: true,
+      data: rows[0]
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
 });
+
 
 // ================================
 // GET CURRENT USER TOKENS
 // ================================
-router.get('/tokens', authMiddleware, (req, res) => {
-  const query = `
-    SELECT 
-      ut.*,
-      p.name AS package_name,
-      p.price,
-      p.duration_days
-    FROM user_tokens ut
-    JOIN packages p ON p.id = ut.package_id
-    WHERE ut.user_id = ?
-    ORDER BY ut.activated_at DESC
-  `;
+router.get('/tokens', authMiddleware, async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        ut.*,
+        p.name AS package_name,
+        p.price,
+        p.duration_days
+      FROM user_tokens ut
+      JOIN packages p ON p.id = ut.package_id
+      WHERE ut.user_id = ?
+      ORDER BY ut.activated_at DESC
+    `;
 
-  db.query(query, [req.user.id], (err, rows) => {
-    if (err) return res.status(500).json({ message: err.message });
-    res.json(rows);
-  });
+    const [rows] = await db.query(query, [req.user.id]);
+
+    res.json({
+      success: true,
+      data: rows
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
 });
+
 
 
 // ======================================================
@@ -88,37 +105,48 @@ router.post(
 // ================================
 // GET ALL USERS (ADMIN) - WITH PACKAGE STATUS
 // ================================
-router.get('/', adminAuth, (req, res) => {
-  const query = `
-    SELECT 
-      u.id,
-      u.name,
-      u.email,
-      u.phone,
-      u.is_verified,
-      u.created_at,
+router.get('/', adminAuth, async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        u.id,
+        u.name,
+        u.email,
+        u.phone,
+        u.is_verified,
+        u.created_at,
 
-      ut.package_id,
-      p.name AS package_name,
-      ut.expired_at,
-      ut.is_active
+        ut.package_id,
+        p.name AS package_name,
+        ut.expired_at,
+        ut.is_active
 
-    FROM users u
-    LEFT JOIN user_tokens ut 
-      ON ut.user_id = u.id
-      AND ut.is_active = 1
-      AND ut.expired_at > NOW()
+      FROM users u
+      LEFT JOIN user_tokens ut 
+        ON ut.user_id = u.id
+        AND ut.is_active = 1
+        AND ut.expired_at > NOW()
 
-    LEFT JOIN packages p 
-      ON p.id = ut.package_id
+      LEFT JOIN packages p 
+        ON p.id = ut.package_id
 
-    ORDER BY u.created_at DESC
-  `;
+      ORDER BY u.created_at DESC
+    `;
 
-  db.query(query, (err, rows) => {
-    if (err) return res.status(500).json({ message: err.message });
-    res.json(rows);
-  });
+    const [rows] = await db.query(query);
+
+    res.json({
+      success: true,
+      data: rows
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
 });
+
 
 module.exports = router;

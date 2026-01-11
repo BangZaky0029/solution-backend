@@ -1,3 +1,5 @@
+// C:\codingVibes\nuansasolution\.mainweb\payments\solution-backend\routes\admin.js
+
 const express = require('express');
 const router = express.Router();
 const admin = require('../controllers/adminController');
