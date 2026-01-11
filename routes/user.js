@@ -43,34 +43,39 @@ router.get('/me', authMiddleware, async (req, res) => {
 
 
 // ================================
-// GET CURRENT USER TOKENS
+// GET CURRENT USER ACTIVE TOKENS
 // ================================
 router.get('/tokens', authMiddleware, async (req, res) => {
   try {
     const query = `
       SELECT 
-        ut.*,
+        ut.id,
+        ut.package_id,
+        ut.is_active,
+        ut.activated_at,
+        ut.expired_at,
+
         p.name AS package_name,
         p.price,
         p.duration_days
       FROM user_tokens ut
       JOIN packages p ON p.id = ut.package_id
-      WHERE ut.user_id = ?
-      ORDER BY ut.activated_at DESC
+      WHERE 
+        ut.user_id = ?
+        AND ut.is_active = 1
+        AND ut.expired_at > NOW()
+      ORDER BY ut.expired_at DESC
     `;
 
     const [rows] = await db.query(query, [req.user.id]);
 
-    res.json({
-      success: true,
-      data: rows
-    });
+    // 🔥 JANGAN dibungkus success/data
+    // FE butuh ARRAY langsung
+    res.json(rows);
 
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    console.error('GET /users/tokens error:', error);
+    res.status(500).json([]);
   }
 });
 
