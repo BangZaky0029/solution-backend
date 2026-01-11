@@ -1,22 +1,21 @@
 # =========================================
-# GLOBAL
-# =========================================
-*~
-*.tmp
-*.temp
-*.swp
-*.bak
-.cache/
-
-# =========================================
-# ENVIRONMENT VARIABLES (WAJIB DI-IGNORE)
+# ENV & SECRETS (CRITICAL)
 # =========================================
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.crt
+*.pfx
+*.jks
+secrets/
+credentials/
+apikeys/
+tokens/
 
 # =========================================
-# NODE / NPM / YARN / PNPM
+# NODE / PACKAGE MANAGERS
 # =========================================
 node_modules/
 npm-debug.log*
@@ -24,49 +23,65 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
-package-lock.json.old
 
 # =========================================
-# BUILD OUTPUT
+# BUILD & CACHE
 # =========================================
 dist/
 build/
 out/
 coverage/
-dist-ssr/
-
-# =========================================
-# VITE / REACT
-# =========================================
-.vite/
-.eslintcache
-*.local
+.cache/
+.tmp/
+.temp/
 
 # =========================================
 # LOGS
 # =========================================
 logs/
 *.log
+*.out
 
 # =========================================
-# WHATSAPP-WEB.JS / PUPPETEER
+# WHATSAPP WEB JS (VERY SENSITIVE)
 # =========================================
 .wwebjs_auth/
 .wwebjs_cache/
+whatsapp-session/
+session/
+auth_info/
+qr-data/
+
+# =========================================
+# PUPPETEER / CHROMIUM
+# =========================================
 .chromium/
 puppeteer_cache/
 chrome-profile/
 chrome_data/
+user-data-dir/
 
 # =========================================
-# DATABASE / BACKUP FILES
+# UPLOADS / USER FILES
+# =========================================
+uploads/*
+invoice/*
+receipts/*
+media/*
+storage/*
+!uploads/.gitkeep
+!invoice/.gitkeep
+
+# =========================================
+# DATABASE / BACKUPS
 # =========================================
 *.sql
 *.sqlite
 *.sqlite3
 *.db
-backup/
 dump/
+backup/
+db_backup/
 
 # =========================================
 # OS FILES
@@ -74,9 +89,10 @@ dump/
 .DS_Store
 Thumbs.db
 desktop.ini
+ehthumbs.db
 
 # =========================================
-# EDITORS & IDEs
+# IDE & EDITOR
 # =========================================
 .vscode/*
 !.vscode/extensions.json
@@ -88,7 +104,15 @@ desktop.ini
 *.sw?
 
 # =========================================
-# GIT
+# GIT INTERNALS
 # =========================================
 .git/
 .gitignore.lock
+
+# =========================================
+# DOCKER / CI
+# =========================================
+.docker/
+docker-data/
+*.pid
+*.sock
