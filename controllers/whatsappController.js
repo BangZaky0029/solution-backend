@@ -1,6 +1,6 @@
 // =========================================
-// FILE: controllers/whatsappController.js
-// WhatsApp Bot Controller
+// FILE: controllers/whatsappController.js - FIXED
+// WhatsApp Bot Controller (NO DIRECT CLIENT ACCESS)
 // =========================================
 
 const whatsappClient = require('../utils/whatsappClient');
@@ -30,9 +30,9 @@ exports.getStatus = (req, res) => {
  */
 exports.getQRCode = (req, res) => {
   try {
-    const { qrCode, status } = whatsappClient.getStatus();
+    const { qrCode, status, isReady } = whatsappClient.getStatus();
     
-    if (status === 'ready') {
+    if (status === 'ready' || isReady) {
       return res.json({
         success: true,
         status: 'ready',
@@ -112,11 +112,11 @@ exports.disconnect = async (req, res) => {
 };
 
 /**
- * Send test message (for admin testing)
+ * ✅ FIXED: Send test message (using abstraction API)
  */
 exports.sendTestMessage = async (req, res) => {
   try {
-    const { phoneNumber, message } = req.body;
+    let { phoneNumber, message } = req.body;
 
     if (!phoneNumber || !message) {
       return res.status(400).json({
@@ -125,6 +125,7 @@ exports.sendTestMessage = async (req, res) => {
       });
     }
 
+    // Check if WhatsApp is ready
     if (!whatsappClient.isReady) {
       return res.status(503).json({
         success: false,
@@ -133,38 +134,42 @@ exports.sendTestMessage = async (req, res) => {
     }
 
     // Format phone number
-    let formattedNumber = phoneNumber.replace(/[^0-9]/g, '');
-    if (!formattedNumber.startsWith('62')) {
-      if (formattedNumber.startsWith('0')) {
-        formattedNumber = '62' + formattedNumber.substring(1);
+    phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+    if (!phoneNumber.startsWith('62')) {
+      if (phoneNumber.startsWith('0')) {
+        phoneNumber = '62' + phoneNumber.substring(1);
       } else {
-        formattedNumber = '62' + formattedNumber;
+        phoneNumber = '62' + phoneNumber;
       }
     }
 
-    const chatId = formattedNumber + '@c.us';
+    // ✅ FIXED: Use abstraction API instead of direct client access
+    await whatsappClient.sendMessage(phoneNumber, message);
 
-    // Check if number is registered
-    const isRegistered = await whatsappClient.client.isRegisteredUser(chatId);
+    res.json({
+      success: true,
+      message: 'Test message sent successfully',
+      to: phoneNumber
+    });
+
+  } catch (error) {
+    console.error('Error sending test message:', error);
     
-    if (!isRegistered) {
+    // Handle specific errors
+    if (error.message.includes('not registered')) {
       return res.status(400).json({
         success: false,
         message: 'Phone number is not registered on WhatsApp'
       });
     }
 
-    // Send message
-    await whatsappClient.client.sendMessage(chatId, message);
+    if (error.message.includes('not ready')) {
+      return res.status(503).json({
+        success: false,
+        message: 'WhatsApp client is not ready'
+      });
+    }
 
-    res.json({
-      success: true,
-      message: 'Test message sent successfully',
-      to: formattedNumber
-    });
-
-  } catch (error) {
-    console.error('Error sending test message:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to send test message',
@@ -174,11 +179,11 @@ exports.sendTestMessage = async (req, res) => {
 };
 
 /**
- * Validate phone number on WhatsApp
+ * ✅ FIXED: Validate phone number (using abstraction API)
  */
 exports.validateNumber = async (req, res) => {
   try {
-    const { phoneNumber } = req.body;
+    let { phoneNumber } = req.body;
 
     if (!phoneNumber) {
       return res.status(400).json({
@@ -187,6 +192,7 @@ exports.validateNumber = async (req, res) => {
       });
     }
 
+    // Check if WhatsApp is ready
     if (!whatsappClient.isReady) {
       return res.status(503).json({
         success: false,
@@ -195,31 +201,38 @@ exports.validateNumber = async (req, res) => {
     }
 
     // Format phone number
-    let formattedNumber = phoneNumber.replace(/[^0-9]/g, '');
-    if (!formattedNumber.startsWith('62')) {
-      if (formattedNumber.startsWith('0')) {
-        formattedNumber = '62' + formattedNumber.substring(1);
+    phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+    if (!phoneNumber.startsWith('62')) {
+      if (phoneNumber.startsWith('0')) {
+        phoneNumber = '62' + phoneNumber.substring(1);
       } else {
-        formattedNumber = '62' + formattedNumber;
+        phoneNumber = '62' + phoneNumber;
       }
     }
 
-    const chatId = formattedNumber + '@c.us';
-
-    // Check if number is registered
-    const isRegistered = await whatsappClient.client.isRegisteredUser(chatId);
+    // ✅ FIXED: Use abstraction API instead of direct client access
+    const isValid = await whatsappClient.validateNumber(phoneNumber);
 
     res.json({
       success: true,
-      isValid: isRegistered,
-      formattedNumber: formattedNumber,
-      message: isRegistered 
+      isValid: isValid,
+      formattedNumber: phoneNumber,
+      message: isValid 
         ? 'Number is registered on WhatsApp' 
         : 'Number is not registered on WhatsApp'
     });
 
   } catch (error) {
     console.error('Error validating number:', error);
+    
+    // Handle specific errors
+    if (error.message.includes('not ready')) {
+      return res.status(503).json({
+        success: false,
+        message: 'WhatsApp client is not ready'
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: 'Failed to validate phone number',

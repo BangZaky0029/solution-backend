@@ -1,38 +1,68 @@
 // =========================================
-// FILE: utils/whatsappClient.js - UPDATED
-// Enhanced with Template Message Methods
+// FILE: utils/whatsappClient.js - FIXED SINGLETON
+// SOLUSI: Anti detached frame + auto-recovery
 // =========================================
 
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const Logger = require('./logger');
-const { WhatsAppTemplates } = require('./whatsappTemplates'); 
 
-class WhatsAppClient {
-  constructor() {
-    this.client = null;
-    this.isReady = false;
-    this.qrCode = null;
-    this.status = 'disconnected';
-    this.io = null;
-    this.initialized = false;
-    this.initializing = false;
-    this.manualDisconnect = false;
+
+// ========================================
+// SINGLETON STATE
+// ========================================
+let client = null;
+let status = 'disconnected';
+let qrCode = null;
+let ready = false;
+let initializing = false;
+let io = null;
+
+// ========================================
+// EMIT STATUS KE SOCKET.IO
+// ========================================
+const emitStatus = () => {
+  try {
+    if (io) {
+      io.emit('whatsapp-status', { status, qrCode, isReady: ready });
+    }
+  } catch (err) {
+    Logger.whatsapp('ERROR', 'Socket emit status'); 
+  }
+};
+
+// ========================================
+// FORMAT PHONE NUMBER
+// ========================================
+const formatPhoneNumber = (phoneNumber) => {
+  let formatted = phoneNumber.replace(/[^0-9]/g, '');
+  
+  if (!formatted.startsWith('62')) {
+    if (formatted.startsWith('0')) {
+      formatted = '62' + formatted.substring(1);
+    } else {
+      formatted = '62' + formatted;
+    }
+  }
+  
+  return formatted;
+};
+
+// ========================================
+// INIT CLIENT (SINGLETON)
+// ========================================
+const initClient = async () => {
+  if (client || initializing) {
+    Logger.whatsapp('SYSTEM', 'WhatsApp client already exists or initializing');
+    return;
   }
 
-  /**
-   * Initialize WhatsApp client
-   */
-  initialize(io) {
-    this.io = io;
-    if (this.initializing || this.initialized) {
-      Logger.whatsapp('SKIP_INIT', 'WhatsApp already initialized');
-      return;
-    }
-    this.initializing = true;
+  initializing = true;
+  status = 'connecting';
+  emitStatus();
 
-
-    this.client = new Client({
+  try {
+    client = new Client({
       authStrategy: new LocalAuth({
         dataPath: './whatsapp-session'
       }),
@@ -51,217 +81,314 @@ class WhatsAppClient {
       }
     });
 
-    // QR Code generated
-    this.client.on('qr', async (qr) => {
-        if (this.qrCode) return; // prevent duplicate QR
-
-        Logger.whatsapp('QR_GENERATED', 'QR Code generated');
-        this.status = 'qr';
-
-        try {
-          this.qrCode = await qrcode.toDataURL(qr);
-
-          this.io?.emit('whatsapp-qr', {
-            qr: this.qrCode,
-            status: 'qr'
-          });
-        } catch (err) {
-          Logger.error('WHATSAPP', 'Error generating QR code', err);
-        }
+    // ========================================
+    // EVENT: QR CODE
+    // ========================================
+    client.on('qr', async (qr) => {
+        Logger.whatsapp('QR', 'QR Code generated');
+        qrCode = await qrcode.toDataURL(qr);
+        status = 'qr'; // ✅ INI PENTING
+        emitStatus();
       });
 
 
-    // Client is ready
-    this.client.on('ready', () => {
-      Logger.whatsapp('READY', 'WhatsApp Client is ready');
 
-      this.isReady = true;
-      this.status = 'ready';
-      this.qrCode = null;
-      this.initialized = true;
-      this.initializing = false;
-
-      this.io?.emit('whatsapp-status', this.getStatus());
+    // ========================================
+    // EVENT: READY
+    // ========================================
+    client.on('ready', () => {
+      Logger.whatsapp('SYSTEM', 'Client is READY');
+      ready = true;
+      qrCode = null;
+      status = 'ready';
+      initializing = false;
+      emitStatus();
     });
 
-
-    // Authentication successful
-    this.client.on('authenticated', () => {
-      Logger.whatsapp('AUTHENTICATED', 'WhatsApp authenticated');
-
-      this.status = 'connecting';
-      this.qrCode = null;
-      this.initializing = false;
-
-      this.io?.emit('whatsapp-status', this.getStatus());
+    // ========================================
+    // EVENT: AUTHENTICATED
+    // ========================================
+    client.on('authenticated', () => {
+      Logger.whatsapp('SYSTEM', 'Authenticated successfully');
+      status = 'connecting';
+      emitStatus();
     });
 
-
-
-    // Authentication failure
-    this.client.on('auth_failure', async (msg) => {
-      Logger.error('WHATSAPP', 'Authentication failed', { message: msg });
-
-      try {
-        await this.client?.destroy();
-      } catch (e) {
-        Logger.error('WHATSAPP', 'Destroy failed', e);
-      }
-
-      this.client = null;
-      this.status = 'disconnected';
-      this.isReady = false;
-      this.qrCode = null;
-      this.initialized = false;
-      this.initializing = false;
-
-      this.io?.emit('whatsapp-status', {
-        status: 'error',
-        message: 'Authentication failed. Please try again.'
-      });
+    // ========================================
+    // EVENT: AUTH FAILURE
+    // ========================================
+    client.on('auth_failure', (msg) => {
+      Logger.whatsapp('ERROR', 'WhatsApp Authentication');
+      status = 'disconnected';
+      ready = false;
+      client = null;
+      initializing = false;
+      emitStatus();
     });
 
+    // ========================================
+    // EVENT: DISCONNECTED (AUTO RECOVERY)
+    // ========================================
+    client.on('disconnected', async (reason) => {
+      Logger.whatsapp('SYSTEM', `Disconnected: ${reason}`);
+      ready = false;
+      status = 'disconnected';
+      client = null;
+      initializing = false;
+      emitStatus();
 
-    // Client disconnected
-    this.client.on('disconnected', (reason) => {
-      Logger.whatsapp('DISCONNECTED', `WhatsApp disconnected: ${reason}`);
-
-      this.status = 'disconnected';
-      this.isReady = false;
-      this.qrCode = null;
-      this.initialized = false;
-
-      this.io?.emit('whatsapp-status', this.getStatus());
-
-      if (!this.initializing && !this.manualDisconnect) {
-        setTimeout(() => {
-          this.restart(this.io);
-        }, 5000);
-      }
+      // Auto-restart after 3 seconds
+      setTimeout(() => {
+        Logger.whatsapp('SYSTEM', 'Auto-restarting WhatsApp client...');
+        initClient();
+      }, 3000);
     });
 
+    await client.initialize();
 
-    // Initialize
-    this.client.initialize();
-    Logger.whatsapp('INITIALIZING', 'WhatsApp client initializing...');
-    this.manualDisconnect = false;
+  } catch (err) {
+    Logger.whatsapp('ERROR', 'WhatsApp initialization');
+    status = 'disconnected';
+    client = null;
+    initializing = false;
+    ready = false;
+    emitStatus();
   }
+};
 
-  /**
-   * Format phone number to WhatsApp format
-   */
-  formatPhoneNumber(phoneNumber) {
-    let formattedNumber = phoneNumber.replace(/[^0-9]/g, '');
+// ========================================
+// ENSURE CLIENT READY
+// ========================================
+const ensureReady = () => {
+  if (!client || !ready) {
+    throw new Error('WhatsApp client not ready');
+  }
+};
 
-    if (!formattedNumber.startsWith('62')) {
-      if (formattedNumber.startsWith('0')) {
-        formattedNumber = '62' + formattedNumber.substring(1);
-      } else {
-        formattedNumber = '62' + formattedNumber;
-      }
+// ========================================
+// API: SEND MESSAGE (ABSTRACTION)
+// ========================================
+const sendMessage = async (phoneNumber, message) => {
+  ensureReady();
+
+  const formatted = formatPhoneNumber(phoneNumber);
+  const chatId = formatted + '@c.us';
+
+  try {
+    const isRegistered = await client.isRegisteredUser(chatId);
+    
+    if (!isRegistered) {
+      throw new Error('Number is not registered on WhatsApp');
     }
 
-    return formattedNumber;
-  }
+    await client.sendMessage(chatId, message);
+    Logger.whatsapp('SYSTEM', `Message sent to ${formatted}`);
+    
+    return { success: true, formattedNumber: formatted };
 
-  /**
-   * Send message to WhatsApp number
-   */
-  async sendMessage(phoneNumber, message) {
-    if (!this.isReady) {
-      throw new Error('WhatsApp client is not ready');
+  } catch (err) {
+    // ========================================
+    // DETACHED FRAME RECOVERY
+    // ========================================
+    if (err.message && err.message.includes('detached')) {
+      Logger.whatsapp('ERROR', '♻️ Detached frame detected, restarting...');                    
+      ready = false;
+      client = null;
+      initializing = false;
+      
+      // Restart immediately
+      setTimeout(initClient, 1000);
     }
-    if (!message || !message.trim()) {
-      throw new Error('Message is empty');
-    }
-
-
-    try {
-      const formattedNumber = this.formatPhoneNumber(phoneNumber);
-      const chatId = formattedNumber + '@c.us';
-
-      // Check if number exists
-      const isRegistered = await this.client.isRegisteredUser(chatId);
-
-      if (!isRegistered) {
-        Logger.error('WHATSAPP', 'Number not registered on WhatsApp', { phoneNumber: formattedNumber });
-        throw new Error('Number is not registered on WhatsApp');
-      }
-
-      // Send message
-      await this.client.sendMessage(chatId, message);
-
-      Logger.whatsapp('MESSAGE_SENT', `Message sent to ${formattedNumber}`);
-
-      return {
-        success: true,
-        message: 'Message sent successfully',
-        formattedNumber
-      };
-
-    } catch (error) {
-      Logger.error('WHATSAPP', 'Error sending message', error);
-      throw error;
-    }
+    
+    throw err;
   }
+};
 
-  /**
-   * Send OTP message (legacy support)
-  */
-  async sendOTP(phoneNumber, otpCode, userName) {
-    const message = WhatsAppTemplates.registrationOTP(userName, otpCode);
-    return this.sendMessage(phoneNumber, message);
+// ========================================
+// API: VALIDATE NUMBER
+// ========================================
+const validateNumber = async (phoneNumber) => {
+  ensureReady();
+  
+  const formatted = formatPhoneNumber(phoneNumber);
+  const chatId = formatted + '@c.us';
+  
+  return await client.isRegisteredUser(chatId);
+};
+
+// ========================================
+// NOTIFICATION FUNCTIONS (ABSTRACTION)
+// ========================================
+
+const sendOTP = async (phoneNumber, otpCode, userName = 'User') => {
+  const message = `🔐 *Gateway SOLUTION - Verification Code*\n\n` +
+                 `Hello ${userName}! 👋\n\n` +
+                 `Your OTP verification code is:\n\n` +
+                 `*${otpCode}*\n\n` +
+                 `⏰ This code is valid for 5 minutes.\n` +
+                 `🔒 Please do not share this code with anyone.\n\n` +
+                 `If you didn't request this code, please ignore this message.\n\n` +
+                 `_Gateway SOLUTION Team_`;
+
+  return await sendMessage(phoneNumber, message);
+};
+
+const sendWelcomeMessage = async (phoneNumber, userName) => {
+  const message = `🎉 *Welcome to Gateway SOLUTION!*\n\n` +
+                 `Hi ${userName}! 👋\n\n` +
+                 `Thank you for registering with us!\n\n` +
+                 `✅ Your account has been verified successfully.\n` +
+                 `🎁 You now have access to our 3-day trial package!\n\n` +
+                 `_Gateway SOLUTION Team_`;
+
+  return await sendMessage(phoneNumber, message);
+};
+
+const sendLoginNotification = async (phoneNumber, userName, ipAddress) => {
+  const timestamp = new Date().toLocaleString('id-ID');
+  const message = `🔔 *Login Notification*\n\n` +
+                 `Hi ${userName}!\n\n` +
+                 `New login detected:\n` +
+                 `⏰ ${timestamp}\n` +
+                 `📍 IP: ${ipAddress}\n\n` +
+                 `_Gateway SOLUTION Security Team_`;
+
+  return await sendMessage(phoneNumber, message);
+};
+
+const sendPaymentReceived = async (phoneNumber, userName, packageName, amount) => {
+  const message = `💳 *Payment Received*\n\n` +
+                 `Hi ${userName}!\n\n` +
+                 `We've received your payment for:\n` +
+                 `📦 ${packageName}\n` +
+                 `💰 Rp ${amount.toLocaleString('id-ID')}\n\n` +
+                 `⏳ Pending verification...\n\n` +
+                 `_Gateway SOLUTION Team_`;
+
+  return await sendMessage(phoneNumber, message);
+};
+
+const sendPaymentApproved = async (phoneNumber, userName, packageName, expiryDate) => {
+  const message = `✅ *Payment Approved!*\n\n` +
+                 `Great news, ${userName}!\n\n` +
+                 `📦 ${packageName}\n` +
+                 `📅 Valid Until: ${expiryDate}\n\n` +
+                 `Visit: https://nuansasolution.id/profile\n\n` +
+                 `_Gateway SOLUTION Team_`;
+
+  return await sendMessage(phoneNumber, message);
+};
+
+const sendExpiryWarning = async (phoneNumber, userName, packageName, daysLeft) => {
+  const message = `⚠️ *Package Expiring Soon*\n\n` +
+                 `Hi ${userName},\n\n` +
+                 `Your ${packageName} expires in ${daysLeft} days.\n\n` +
+                 `Renew: https://nuansasolution.id/payment\n\n` +
+                 `_Gateway SOLUTION Team_`;
+
+  return await sendMessage(phoneNumber, message);
+};
+
+const sendPackageExpired = async (phoneNumber, userName, packageName) => {
+  const message = `⏰ *Package Expired*\n\n` +
+                 `Hi ${userName},\n\n` +
+                 `Your ${packageName} has expired.\n\n` +
+                 `Renew: https://nuansasolution.id/payment\n\n` +
+                 `_Gateway SOLUTION Team_`;
+
+  return await sendMessage(phoneNumber, message);
+};
+
+const sendPasswordResetOTP = async (phoneNumber, userName, otpCode) => {
+  const message = `🔒 *Password Reset Request*\n\n` +
+                 `Hi ${userName},\n\n` +
+                 `Your reset code:\n\n` +
+                 `*${otpCode}*\n\n` +
+                 `⏰ Expires in 5 minutes.\n\n` +
+                 `_Gateway SOLUTION Security Team_`;
+
+  return await sendMessage(phoneNumber, message);
+};
+
+const sendPasswordChanged = async (phoneNumber, userName) => {
+  const timestamp = new Date().toLocaleString('id-ID');
+  const message = `✅ *Password Changed*\n\n` +
+                 `Hi ${userName},\n\n` +
+                 `Your password was changed at ${timestamp}.\n\n` +
+                 `_Gateway SOLUTION Security Team_`;
+
+  return await sendMessage(phoneNumber, message);
+};
+
+// ========================================
+// GET STATUS
+// ========================================
+const getStatus = () => ({
+  status,
+  qrCode,
+  isReady: ready
+});
+
+// ========================================
+// DISCONNECT
+// ========================================
+const disconnect = async () => {
+  if (client) {
+    await client.destroy();
+    client = null;
+    ready = false;
+    status = 'disconnected';
+    qrCode = null;
+    initializing = false;
+    emitStatus();
+    logWhatsApp('Client disconnected');
   }
+};
 
-  /**
-   * Get current status
-   */
-  getStatus() {
-    return {
-      status: this.status,
-      isReady: this.isReady,
-      qrCode: this.qrCode
-    };
-  }
+// ========================================
+// RESTART
+// ========================================
+const restart = async (socketIo) => {
+  io = socketIo;
+  await disconnect();
+  setTimeout(() => {
+    initClient();
+  }, 2000);
+};
 
-  /**
-   * Disconnect WhatsApp client
-   */
-  async disconnect() {
-    if (!this.client) return;
+// ========================================
+// INITIALIZE (EXTERNAL)
+// ========================================
+const initialize = (socketIo) => {
+  io = socketIo;
+  initClient();
+};
 
-    try {
-      await this.client.destroy();
-    } catch (e) {
-      Logger.error('WHATSAPP', 'Error on destroy', e);
-    }
-
-    this.client = null;
-    this.isReady = false;
-    this.status = 'disconnected';
-    this.qrCode = null;
-    this.initialized = false;
-    this.initializing = false;
-    this.manualDisconnect = true;
-
-    Logger.whatsapp('DISCONNECT', 'WhatsApp Client disconnected');
-  }
-
-
-  /**
-   * Restart WhatsApp client
-   */
-  async restart(io) {
-    if (this.initializing) return;
-
-    Logger.whatsapp('RESTART', 'Restarting WhatsApp client...');
-    await this.disconnect();
-    setTimeout(() => {
-      this.initialize(io);
-    }, 2000);
-  }
-}
-
-// Export singleton instance
-const whatsappClient = new WhatsAppClient();
-module.exports = whatsappClient;
+// ========================================
+// EXPORTS
+// ========================================
+module.exports = {
+  // Core
+  initialize,
+  restart,
+  disconnect,
+  getStatus,
+  
+  // Abstraction API
+  sendMessage,
+  validateNumber,
+  
+  // Notifications
+  sendOTP,
+  sendWelcomeMessage,
+  sendLoginNotification,
+  sendPaymentReceived,
+  sendPaymentApproved,
+  sendExpiryWarning,
+  sendPackageExpired,
+  sendPasswordResetOTP,
+  sendPasswordChanged,
+  
+  // Status
+  get isReady() { return ready; }
+};
