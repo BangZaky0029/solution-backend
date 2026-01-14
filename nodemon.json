@@ -1,0 +1,9 @@
+{
+  "watch": ["app.js", "routes", "controllers", "utils"],
+  "ignore": [
+    "whatsapp-session",
+    "node_modules",
+    "*.log"
+  ],
+  "delay": "1000"
+}

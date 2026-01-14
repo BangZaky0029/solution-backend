@@ -10,6 +10,7 @@ const cors = require('cors');
 const path = require('path');
 const http = require('http');
 const { Server } = require('socket.io');
+const healthRoutes = require('./routes/health');
 
 // Utilities
 const Logger = require('./utils/logger');
@@ -70,10 +71,16 @@ io.on('connection', (socket) => {
 });
 
 // ===== INITIALIZE WHATSAPP =====
-setTimeout(() => {
-  Logger.info('WHATSAPP', 'Initializing WhatsApp Client...');
-  whatsappClient.initialize(io);
-}, 2000);
+// ===== INITIALIZE WHATSAPP (PRO SAFE) =====
+if (process.env.WHATSAPP_ENABLED !== 'false') {
+  setTimeout(() => {
+    Logger.info('WHATSAPP', 'Initializing WhatsApp Client...');
+    whatsappClient.initialize(io);
+  }, 2000);
+} else {
+  Logger.info('WHATSAPP', 'WhatsApp disabled via ENV');
+}
+
 
 // ===== API ROUTES =====
 app.use('/api/auth', authRoutes);
@@ -86,6 +93,7 @@ app.use('/api/packages', packageRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/health', healthRoutes);
 
 // ===== ROOT =====
 app.get('/', (req, res) => {

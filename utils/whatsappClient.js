@@ -6,6 +6,8 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const Logger = require('./logger');
+const fs = require('fs');
+const path = require('path');
 
 
 // ========================================
@@ -17,19 +19,24 @@ let qrCode = null;
 let ready = false;
 let initializing = false;
 let io = null;
+let manualDisconnect = false;
+
 
 // ========================================
 // EMIT STATUS KE SOCKET.IO
 // ========================================
-const emitStatus = () => {
-  try {
-    if (io) {
-      io.emit('whatsapp-status', { status, qrCode, isReady: ready });
-    }
-  } catch (err) {
-    Logger.whatsapp('ERROR', 'Socket emit status'); 
+let lastEmit = 0;
+
+const emitStatus = (force = false) => {
+  const now = Date.now();
+  if (!force && now - lastEmit < 300) return;
+  lastEmit = now;
+
+  if (io) {
+    io.emit('whatsapp-status', { status, qrCode, isReady: ready });
   }
 };
+
 
 // ========================================
 // FORMAT PHONE NUMBER
@@ -88,7 +95,7 @@ const initClient = async () => {
         Logger.whatsapp('QR', 'QR Code generated');
         qrCode = await qrcode.toDataURL(qr);
         status = 'qr'; // ✅ INI PENTING
-        emitStatus();
+        emitStatus(true);
       });
 
 
@@ -102,7 +109,7 @@ const initClient = async () => {
       qrCode = null;
       status = 'ready';
       initializing = false;
-      emitStatus();
+      emitStatus(true);
     });
 
     // ========================================
@@ -117,43 +124,69 @@ const initClient = async () => {
     // ========================================
     // EVENT: AUTH FAILURE
     // ========================================
-    client.on('auth_failure', (msg) => {
-      Logger.whatsapp('ERROR', 'WhatsApp Authentication');
+    client.on('auth_failure', async (msg) => {
+      Logger.whatsapp('ERROR', `Auth failure: ${msg}`);
+
+      manualDisconnect = true; // ⬅️ TAMBAHKAN INI
+
+      const sessionPath = path.join(__dirname, '../whatsapp-session');
+      try {
+        fs.rmSync(sessionPath, { recursive: true, force: true });
+      } catch (e) {
+        Logger.whatsapp('ERROR', 'Failed to remove session folder');
+      }
+
+
       status = 'disconnected';
       ready = false;
       client = null;
       initializing = false;
       emitStatus();
+
+      setTimeout(() => {
+        manualDisconnect = false;
+        initClient();
+      }, 2000);
     });
+
+
 
     // ========================================
     // EVENT: DISCONNECTED (AUTO RECOVERY)
     // ========================================
     client.on('disconnected', async (reason) => {
       Logger.whatsapp('SYSTEM', `Disconnected: ${reason}`);
+
       ready = false;
       status = 'disconnected';
       client = null;
       initializing = false;
       emitStatus();
 
-      // Auto-restart after 3 seconds
-      setTimeout(() => {
-        Logger.whatsapp('SYSTEM', 'Auto-restarting WhatsApp client...');
-        initClient();
-      }, 3000);
+      if (!manualDisconnect) {
+        setTimeout(() => {
+          Logger.whatsapp('SYSTEM', 'Auto-restarting WhatsApp client...');
+          initClient();
+        }, 3000);
+      }
+
+      manualDisconnect = false;
     });
+
 
     await client.initialize();
 
   } catch (err) {
-    Logger.whatsapp('ERROR', 'WhatsApp initialization');
+    Logger.whatsapp('ERROR', 'WhatsApp initialization FAILED');
+    console.error('❌ INIT ERROR:', err);
+    
     status = 'disconnected';
     client = null;
     initializing = false;
     ready = false;
     emitStatus();
   }
+
 };
 
 // ========================================
@@ -162,6 +195,9 @@ const initClient = async () => {
 const ensureReady = () => {
   if (!client || !ready) {
     throw new Error('WhatsApp client not ready');
+  }
+  if (!client.info) {
+    throw new Error('WhatsApp client info not ready');
   }
 };
 
@@ -191,14 +227,15 @@ const sendMessage = async (phoneNumber, message) => {
     // DETACHED FRAME RECOVERY
     // ========================================
     if (err.message && err.message.includes('detached')) {
-      Logger.whatsapp('ERROR', '♻️ Detached frame detected, restarting...');                    
-      ready = false;
-      client = null;
-      initializing = false;
-      
-      // Restart immediately
-      setTimeout(initClient, 1000);
+      if (!initializing) {
+        Logger.whatsapp('ERROR', '♻️ Detached frame detected, restarting...');
+        ready = false;
+        client = null;
+        initializing = false;
+        setTimeout(initClient, 1000);
+      }
     }
+
     
     throw err;
   }
@@ -334,16 +371,19 @@ const getStatus = () => ({
 // ========================================
 const disconnect = async () => {
   if (client) {
-    await client.destroy();
+    manualDisconnect = true;
+    await client.destroy().catch(() => {});
     client = null;
     ready = false;
     status = 'disconnected';
     qrCode = null;
     initializing = false;
     emitStatus();
-    logWhatsApp('Client disconnected');
+    Logger.whatsapp('SYSTEM', 'Client disconnected');
   }
 };
+
+
 
 // ========================================
 // RESTART
@@ -359,10 +399,16 @@ const restart = async (socketIo) => {
 // ========================================
 // INITIALIZE (EXTERNAL)
 // ========================================
+let initializedOnce = false;
+
 const initialize = (socketIo) => {
+  if (initializedOnce) return;
+  initializedOnce = true;
+
   io = socketIo;
   initClient();
 };
+
 
 // ========================================
 // EXPORTS
