@@ -1,3 +1,5 @@
+// C:\codingVibes\nuansasolution\.mainweb\payments\solution-backend\utils\whatsappClient.js
+
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const Logger = require('./logger');
@@ -125,12 +127,16 @@ class WhatsAppClient {
    * Broadcast status to all connected Socket.IO clients
    */
   broadcastStatus(data) {
-    if (!this.io) return;
+    if (!this.io) {
+        Logger.warn('WHATSAPP', `Cannot broadcast status "${data.status}" - Socket.IO not ready`);
+        return;
+    }
     const payload = { ...data };
     if (this.qrCode) payload.qr = this.qrCode;
     this.io.emit('whatsapp-status', payload);
     Logger.info('WHATSAPP', `Status broadcast: ${data.status}`);
-  }
+}
+
 
   /**
    * Get current status
