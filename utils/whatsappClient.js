@@ -18,7 +18,6 @@ class WhatsAppClient {
     this.currentStatus = 'disconnected';
     this.retryCount = 0;
     this.maxRetries = 3;
-    this.sessionPath = '/var/www/solution-backend/whatsapp-session';
   }
 
   /**
@@ -27,19 +26,17 @@ class WhatsAppClient {
    */
   async initialize(io) {
     this.io = io;
+    if (this.client) {
+      Logger.warn('WHATSAPP', 'Initialize called but client already exists');
+      return;
+    }
 
     try {
       Logger.info('WHATSAPP', 'Creating WhatsApp client...');
 
-      // Ensure session directory exists
-      if (!fs.existsSync(this.sessionPath)) {
-        fs.mkdirSync(this.sessionPath, { recursive: true });
-      }
-
       this.client = new Client({
         authStrategy: new LocalAuth({
-          clientId: 'gateway-solution',
-          dataPath: this.sessionPath
+          clientId: 'gateway-solution'
         }),
         puppeteer: {
           headless: true,
@@ -87,6 +84,7 @@ class WhatsAppClient {
       }
     });
 
+
     // Ready event
     this.client.on('ready', () => {
       Logger.info('WHATSAPP', '✅ Client is ready!');
@@ -104,14 +102,15 @@ class WhatsAppClient {
 
     // Authenticated event
     this.client.on('authenticated', () => {
-      Logger.info('WHATSAPP', 'Client authenticated');
+      Logger.info('WHATSAPP', '🟢 AUTHENTICATED - waiting for ready');
       this.currentStatus = 'authenticated';
-      
+
       this.broadcastStatus({
         status: 'authenticated',
         message: 'Authentication successful'
       });
     });
+
 
     // Auth failure event
     this.client.on('auth_failure', (msg) => {
@@ -120,9 +119,8 @@ class WhatsAppClient {
       this.isReady = false;
       
       this.broadcastStatus({
-        status: 'disconnected',
-        message: 'Authentication failed',
-        error: msg
+        status: 'auth_failure',
+        message: 'Authentication failed. Please rescan QR.'
       });
     });
 
@@ -188,21 +186,28 @@ class WhatsAppClient {
    * @param {Error} error - Error object
    */
   handleInitError(error) {
-    this.retryCount++;
-    
-    if (this.retryCount < this.maxRetries) {
-      Logger.warn('WHATSAPP', `Retry ${this.retryCount}/${this.maxRetries} in 5 seconds...`);
-      setTimeout(() => this.initialize(this.io), 5000);
-    } else {
-      Logger.error('WHATSAPP', 'Max retries reached. WhatsApp disabled.');
-      this.currentStatus = 'failed';
-      this.broadcastStatus({
-        status: 'failed',
-        message: 'Failed to initialize after multiple attempts',
-        error: error.message
-      });
-    }
+  this.retryCount++;
+
+  if (this.client) {
+    this.client.removeAllListeners();
+    this.client = null;
   }
+
+  if (this.retryCount < this.maxRetries) {
+    Logger.warn('WHATSAPP', `Retry ${this.retryCount}/${this.maxRetries} in 5 seconds...`);
+    setTimeout(() => this.initialize(this.io), 5000);
+  } else {
+    Logger.error('WHATSAPP', 'Max retries reached. WhatsApp disabled.');
+    this.currentStatus = 'failed';
+
+    this.broadcastStatus({
+      status: 'failed',
+      message: 'Failed to initialize after multiple attempts',
+      error: error.message
+    });
+  }
+}
+
 
   /**
    * Format phone number to WhatsApp format
@@ -285,36 +290,30 @@ class WhatsAppClient {
    * Restart WhatsApp client
    */
   async restart() {
-    try {
-      Logger.info('WHATSAPP', 'Restarting client...');
-      
-      if (this.client) {
-        await this.client.destroy();
-      }
-      
-      this.isReady = false;
-      this.qrCode = null;
-      this.currentStatus = 'restarting';
-      this.retryCount = 0;
-      
-      this.broadcastStatus({
-        status: 'restarting',
-        message: 'Restarting WhatsApp client...'
-      });
-      
-      // Reinitialize after 2 seconds
-      setTimeout(() => {
-        this.client = null;
-        this.initialize(this.io);
-      }, 5000);
+    Logger.info('WHATSAPP', 'Restarting client...');
 
-      
-      return { success: true, message: 'Restart initiated' };
-    } catch (error) {
-      Logger.error('WHATSAPP', 'Restart error', error);
-      throw new Error('Failed to restart WhatsApp client');
+    if (this.client) {
+      this.client.removeAllListeners();
+      await this.client.destroy();
+      this.client = null;
     }
+
+    this.isReady = false;
+    this.qrCode = null;
+    this.currentStatus = 'restarting';
+
+    this.broadcastStatus({
+      status: 'restarting',
+      message: 'Restarting WhatsApp client...'
+    });
+
+    setTimeout(() => {
+      this.initialize(this.io);
+    }, 3000);
+
+    return { success: true };
   }
+
 
   /**
    * Disconnect WhatsApp client
@@ -350,7 +349,7 @@ class WhatsAppClient {
    */
   getInfo() {
     if (!this.isReady || !this.client) {
-      return null;
+      return { success: true, message: 'Client already disconnected' };
     }
     
     return this.client.info;

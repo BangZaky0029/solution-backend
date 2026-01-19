@@ -1,17 +1,27 @@
-// C:\codingVibes\nuansasolution\.mainweb\payments\solution-backend\server.js
-
 require('dotenv').config();
 const http = require('http');
 const app = require('./app');
-const { initSocket } = require('./socket'); // 🔥 TAMBAH INI
+
+const { initSocket, getIO } = require('./socket');
+const whatsappClient = require('./utils/whatsappClient');
+const Logger = require('./utils/logger');
 
 const server = http.createServer(app);
 
-// 🔥 INIT SOCKET.IO
+// 1️⃣ INIT SOCKET.IO
 initSocket(server);
 
+// 2️⃣ INIT WHATSAPP (SETELAH SOCKET)
+if (process.env.WHATSAPP_ENABLED !== 'false') {
+  setTimeout(() => {
+    Logger.info('WHATSAPP', 'Initializing WhatsApp Client...');
+    whatsappClient.initialize(getIO());
+  }, 2000);
+}
+
+// 3️⃣ START SERVER
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log('🔌 Socket.IO initialized');
+  Logger.info('SERVER', `🚀 Server running on port ${PORT}`);
+  Logger.info('SERVER', `🔌 Socket.IO ready`);
 });
