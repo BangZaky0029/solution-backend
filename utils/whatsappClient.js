@@ -182,26 +182,27 @@ class WhatsAppClient {
   /**
    * Restart WhatsApp client
    */
-  async restart() {
-    Logger.info('WHATSAPP', 'Restarting client...');
-    await this.checkExistingSession(true);
-    if (this.client) {
-      this.client.removeAllListeners();
-      try {
-        await this.client.destroy(); // pastikan client lama benar-benar dihentikan
-      } catch(e) {
-        Logger.warn('WHATSAPP', 'Failed to destroy client, ignoring...', e);
+  async restart(removeSession = false) {
+      Logger.info('WHATSAPP', 'Restarting client...');
+
+      // Hanya hapus session kalau benar-benar diinginkan
+      if (removeSession) await this.checkExistingSession(true);
+
+      if (this.client) {
+        this.client.removeAllListeners();
+        try { await this.client.destroy(); } 
+        catch(e) { Logger.warn('WHATSAPP', 'Failed to destroy client, ignoring...', e); }
+        this.client = null;
       }
-      this.client = null;
+
+      this.isReady = false;
+      this.qrCode = null;
+      this.currentStatus = 'restarting';
+      this.broadcastStatus({ status: 'restarting', message: 'Restarting WhatsApp client...' });
+
+      setTimeout(() => this.initialize(this.io), 3000);
     }
 
-    this.isReady = false;
-    this.qrCode = null;
-    this.currentStatus = 'restarting';
-    this.broadcastStatus({ status: 'restarting', message: 'Restarting WhatsApp client...' });
-
-    setTimeout(() => this.initialize(this.io), 3000); // delay 3 detik
-  }
 
 
   /**
