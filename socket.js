@@ -5,6 +5,25 @@ const whatsappClient = require('./utils/whatsappClient'); // instance singleton
 
 let io;
 
+io.on('connection', (socket) => {
+  Logger.info('SOCKET', `Client connected: ${socket.id}`);
+
+  // Kirim status WhatsApp saat baru connect
+  const status = whatsappClient.getStatus();
+  socket.emit('whatsapp-status', status);
+
+  // Request QR manual
+  socket.on('request-qr', () => {
+    const status = whatsappClient.getStatus();
+    socket.emit('whatsapp-status', status);
+  });
+
+  socket.on('disconnect', () => {
+    Logger.info('SOCKET', `Client disconnected: ${socket.id}`);
+  });
+});
+
+
 /**
  * Initialize Socket.IO server
  * @param {http.Server} server - HTTP server
