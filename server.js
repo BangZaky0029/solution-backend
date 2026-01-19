@@ -1,11 +1,13 @@
 // server.js
 require('dotenv').config();
 const http = require('http');
-const app = require('./app');
 
+const app = require('./app');
 const { initSocket, getIO } = require('./socket');
 const whatsappClient = require('./utils/whatsappClient');
 const Logger = require('./utils/logger');
+
+const PORT = process.env.PORT || 5000;
 
 // ================================
 // CREATE HTTP SERVER
@@ -13,12 +15,20 @@ const Logger = require('./utils/logger');
 const server = http.createServer(app);
 
 // ================================
-// INIT SOCKET.IO
+// INIT SOCKET.IO (WAJIB SEBELUM LISTEN)
 // ================================
 initSocket(server);
 
 // ================================
-// INIT WHATSAPP (AFTER SOCKET READY)
+// START SERVER (INI KUNCI UTAMA)
+// ================================
+server.listen(PORT, '0.0.0.0', () => {
+  Logger.info('SERVER', `🚀 Server running on port ${PORT}`);
+  Logger.info('SERVER', `🔌 Socket.IO ready`);
+});
+
+// ================================
+// INIT WHATSAPP (SETELAH SERVER & SOCKET)
 // ================================
 if (process.env.WHATSAPP_ENABLED !== 'false') {
   setTimeout(() => {
@@ -28,15 +38,5 @@ if (process.env.WHATSAPP_ENABLED !== 'false') {
     } catch (err) {
       Logger.error('WHATSAPP', 'Failed to init WhatsApp', err);
     }
-  }, 2000);
+  }, 3000);
 }
-
-// ================================
-// START SERVER
-// ================================
-const PORT = process.env.PORT || 5000;
-
-server.listen(PORT, () => {
-  Logger.info('SERVER', `🚀 Server running on port ${PORT}`);
-  Logger.info('SERVER', `🔌 Socket.IO initialized`);
-});

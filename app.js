@@ -1,10 +1,10 @@
+// app.js
 require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
 
-const Logger = require('./utils/logger');
 const requestLogger = require('./middlewares/requestLogger');
 require('./utils/cron');
 
@@ -23,13 +23,21 @@ const healthRoutes = require('./routes/health');
 
 const app = express();
 
-// ===== MIDDLEWARE =====
-app.use(cors());
+// ================================
+// MIDDLEWARE
+// ================================
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+}));
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use(requestLogger);
 
-// ===== ROUTES =====
+// ================================
+// ROUTES
+// ================================
 app.use('/api/auth', authRoutes);
 app.use('/api/password', passwordRoutes);
 app.use('/api/payment', paymentRoutes);
@@ -42,7 +50,9 @@ app.use('/api/stats', statsRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/health', healthRoutes);
 
-// ===== ROOT =====
+// ================================
+// ROOT
+// ================================
 app.get('/', (req, res) => {
   res.json({
     message: 'Gateway APTO API Running 🚀',
