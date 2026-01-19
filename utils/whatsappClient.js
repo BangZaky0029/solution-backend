@@ -18,7 +18,7 @@ class WhatsAppClient {
     this.currentStatus = 'disconnected';
     this.retryCount = 0;
     this.maxRetries = 3;
-    this.sessionPath = path.join(__dirname, '../.wwebjs_auth');
+    this.sessionPath = '/var/www/solution-backend/whatsapp-session';
   }
 
   /**
@@ -147,7 +147,7 @@ class WhatsAppClient {
 
     // Message event (for debugging)
     this.client.on('message', async (msg) => {
-      Logger.debug('WHATSAPP', `Message from ${msg.from}: ${msg.body.substring(0, 50)}`);
+      Logger.info('WHATSAPP', `Message from ${msg.from}: ${msg.body.substring(0, 50)}`);
     });
 
     // Error event
@@ -166,7 +166,7 @@ class WhatsAppClient {
       if (data.qr) {
         this.io.emit('whatsapp-qr', data);
       }
-      Logger.info('[WHATSAPP] Status broadcast', data)
+      Logger.info('WHATSAPP', `Status broadcast: ${data.status}`)
     }
   }
 
@@ -303,7 +303,11 @@ class WhatsAppClient {
       });
       
       // Reinitialize after 2 seconds
-      setTimeout(() => this.initialize(this.io), 2000);
+      setTimeout(() => {
+        this.client = null;
+        this.initialize(this.io);
+      }, 5000);
+
       
       return { success: true, message: 'Restart initiated' };
     } catch (error) {
