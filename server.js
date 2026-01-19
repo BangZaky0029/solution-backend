@@ -1,7 +1,7 @@
 require('dotenv').config();
 const http = require('http');
 const app = require('./app');
-const { initSocket, getIO } = require('./socket');
+const { initSocket } = require('./socket');
 const whatsappClient = require('./utils/whatsappClient');
 const Logger = require('./utils/logger');
 
@@ -15,29 +15,28 @@ const server = http.createServer(app);
 // ================================
 // INIT SOCKET.IO
 // ================================
-initSocket(server);
+const io = initSocket(server); // dapat instance io
+Logger.info('SERVER', '🔌 Socket.IO initialized');
 
 // ================================
 // START SERVER
 // ================================
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, '0.0.0.0', async () => {
   Logger.info('SERVER', `🚀 Server running on port ${PORT}`);
-  Logger.info('SERVER', `🔌 Socket.IO ready`);
-});
 
-// ================================
-// INIT WHATSAPP (SAFE)
-// ================================
-if (process.env.WHATSAPP_ENABLED !== 'false') {
-  setTimeout(() => {
+  // ================================
+  // INIT WHATSAPP CLIENT (SAFE)
+  // ================================
+  if (process.env.WHATSAPP_ENABLED !== 'false') {
     try {
       Logger.info('WHATSAPP', 'Initializing WhatsApp Client...');
-      whatsappClient.initialize(getIO());
+      await whatsappClient.initialize(io); // inject io ke WA client
+      Logger.info('WHATSAPP', 'WhatsApp Client initialized successfully');
     } catch (err) {
-      Logger.error('WHATSAPP', 'Failed to init WhatsApp', err);
+      Logger.error('WHATSAPP', 'Failed to init WhatsApp Client', err);
     }
-  }, 3000);
-}
+  }
+});
 
 // ================================
 // HANDLE UNCAUGHT ERRORS
