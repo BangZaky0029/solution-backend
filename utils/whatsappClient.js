@@ -1,6 +1,4 @@
-// KODE BE
-// C:\codingVibes\nuansasolution\.mainweb\payments\solution-backend\utils\whatsappClient.js
-
+// whatsappClient.js (FINAL STABIL)
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const Logger = require('./logger');
@@ -17,22 +15,25 @@ class WhatsAppClient {
     this.currentStatus = 'disconnected';
     this.retryCount = 0;
     this.maxRetries = 3;
+    this.isRestarting = false;
   }
 
+  // ✅ Check session folder, bisa hapus jika removeIfExists = true
   async checkExistingSession(removeIfExists = false) {
     if (fs.existsSync(SESSION_PATH)) {
       Logger.warn('WHATSAPP', `Existing session folder found: ${SESSION_PATH}`);
       if (removeIfExists) {
-        Logger.info('WHATSAPP', 'Old session folder removed.');
+        try {
+          fs.rmSync(SESSION_PATH, { recursive: true, force: true });
+          Logger.info('WHATSAPP', 'Old session folder removed.');
+        } catch (err) {
+          Logger.warn('WHATSAPP', 'Failed to remove old session folder', err);
+        }
       }
     }
   }
 
-
-  /**
-   * Initialize WhatsApp Client
-   * @param {Object} io - Socket.IO instance
-   */
+  // Initialize WhatsApp client
   async initialize(io) {
     if (this.client && this.isReady) {
       Logger.info('WHATSAPP', 'Client already initialized and ready');
@@ -40,41 +41,36 @@ class WhatsAppClient {
     }
 
     if (!io) throw new Error('Socket.IO instance required');
-      this.io = io;
+    this.io = io;
 
-      try {
-        Logger.info('WHATSAPP', 'Creating WhatsApp client...');
-        this.client = new Client({
-          authStrategy: new LocalAuth({ clientId: 'gateway-solution' }) ,
-          puppeteer: {
-            headless: true,
-            args: [
-              '--no-sandbox',
-              '--disable-setuid-sandbox',
-              '--disable-dev-shm-usage',
-              '--disable-accelerated-2d-canvas',
-              '--no-first-run',
-              '--no-zygote',
-              '--disable-gpu'
-            ]
-          }
-        });
+    try {
+      Logger.info('WHATSAPP', 'Creating WhatsApp client...');
+      this.client = new Client({
+        authStrategy: new LocalAuth({ clientId: 'gateway-solution' }),
+        puppeteer: {
+          headless: true,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu'
+          ]
+        }
+      });
 
-
-        this.setupEventHandlers();
-        Logger.info('WHATSAPP', 'Initializing WhatsApp client...');
-        await this.client.initialize();
-        Logger.info('WHATSAPP', 'Client initialized successfully');
-      } catch (error) {
-        Logger.error('WHATSAPP', `Initialization error (retryCount: ${this.retryCount})`, error);
-        this.handleInitError(error);
-      }
+      this.setupEventHandlers();
+      Logger.info('WHATSAPP', 'Initializing WhatsApp client...');
+      await this.client.initialize();
+      Logger.info('WHATSAPP', 'Client initialized successfully');
+    } catch (error) {
+      Logger.error('WHATSAPP', `Initialization error (retryCount: ${this.retryCount})`, error);
+      this.handleInitError(error);
     }
+  }
 
-
-  /**
-   * Setup all event handlers
-   */
   setupEventHandlers() {
     this.client.on('qr', async (qr) => {
       try {
@@ -100,18 +96,21 @@ class WhatsAppClient {
       this.broadcastStatus({ status: 'authenticated', message: 'Authentication successful' });
     });
 
-    this.client.on('auth_failure', () => {
+    this.client.on('auth_failure', async () => {
       this.isReady = false;
       this.currentStatus = 'auth_failure';
       this.broadcastStatus({ status: 'auth_failure', message: 'Authentication failed. Please rescan QR.' });
+      // Optional: restart dengan hapus session otomatis
+      await this.restart(true);
     });
 
-    this.client.on('disconnected', (reason) => {
+    this.client.on('disconnected', async (reason) => {
       this.isReady = false;
       this.qrCode = null;
       this.currentStatus = 'disconnected';
       this.broadcastStatus({ status: 'disconnected', message: 'WhatsApp disconnected', reason });
-      setTimeout(() => this.restart(), 5000);
+      // Async restart
+      setTimeout(async () => await this.restart(), 5000);
     });
 
     this.client.on('error', (error) => {
@@ -123,24 +122,17 @@ class WhatsAppClient {
     });
   }
 
-  /**
-   * Broadcast status to all connected Socket.IO clients
-   */
   broadcastStatus(data) {
     if (!this.io) {
-        Logger.warn('WHATSAPP', `Cannot broadcast status "${data.status}" - Socket.IO not ready`);
-        return;
+      Logger.warn('WHATSAPP', `Cannot broadcast status "${data.status}" - Socket.IO not ready`);
+      return;
     }
     const payload = { ...data };
     if (this.qrCode) payload.qr = this.qrCode;
     this.io.emit('whatsapp-status', payload);
     Logger.info('WHATSAPP', `Status broadcast: ${data.status}`);
-}
+  }
 
-
-  /**
-   * Get current status
-   */
   getStatus() {
     return {
       status: this.currentStatus,
@@ -150,16 +142,11 @@ class WhatsAppClient {
     };
   }
 
-  // ✅ Tambahkan getInfo() di sini
   getInfo() {
     if (!this.client || !this.isReady) return null;
     return this.client.info;
   }
 
-
-  /**
-   * Handle initialization errors
-   */
   handleInitError(error) {
     this.retryCount++;
 
@@ -176,8 +163,8 @@ class WhatsAppClient {
     }
 
     if (this.retryCount < this.maxRetries) {
-      Logger.warn('WHATSAPP', `Retry ${this.retryCount}/${this.maxRetries} in 5 seconds...`);
-      setTimeout(() => this.initialize(this.io), 3000); // delay 3 detik
+      Logger.warn('WHATSAPP', `Retry ${this.retryCount}/${this.maxRetries} in 3 seconds...`);
+      setTimeout(() => this.initialize(this.io), 3000);
     } else {
       this.currentStatus = 'failed';
       this.broadcastStatus({ status: 'failed', message: 'WhatsApp client disabled, manual restart required.' });
@@ -185,13 +172,11 @@ class WhatsAppClient {
     }
   }
 
-  
-  // ✅ LETAKKAN destroyClient DI SINI
   async destroyClient() {
     if (this.client) {
       try {
         this.client.removeAllListeners();
-        await this.client.destroy(); // tidak perlu cek browser.isConnected(), destroy() sudah aman
+        await this.client.destroy();
         Logger.info('WHATSAPP', 'Client destroyed successfully');
       } catch (err) {
         Logger.warn('WHATSAPP', 'Failed to destroy client, ignoring...', err);
@@ -204,52 +189,38 @@ class WhatsAppClient {
     }
   }
 
+  async restart(removeSession = false) {
+    if (this.isRestarting) return;
+    this.isRestarting = true;
 
+    Logger.info('WHATSAPP', 'Restarting client...');
+    this.retryCount = 0;
 
-
-  /**
-   * Restart WhatsApp client
-   */
-  // Restart client
-    async restart(removeSession = false) {
-        // Jika sudah sedang restart, hentikan duplicate restart
-        if (this.isRestarting) return;
-        this.isRestarting = true;
-
-        Logger.info('WHATSAPP', 'Restarting client...');
-
-        // Hapus session jika diminta
-        if (fs.existsSync(SESSION_PATH) && removeSession) {
-            try {
-                fs.rmSync(SESSION_PATH, { recursive: true, force: true });
-                Logger.info('WHATSAPP', 'Session folder removed successfully');
-            } catch (err) {
-                Logger.warn('WHATSAPP', 'Failed to remove session folder', err);
-            }
-        }
-
-        // Hancurkan client lama
-        await this.destroyClient();
-
-        this.currentStatus = 'restarting';
-        this.broadcastStatus({ status: 'restarting', message: 'Restarting WhatsApp client...' });
-
-        // Delay sedikit sebelum initialize
-        setTimeout(async () => {
-            try {
-                await this.initialize(this.io);
-            } catch (err) {
-                Logger.error('WHATSAPP', 'Failed to initialize after restart', err);
-            } finally {
-                this.isRestarting = false; // reset flag agar bisa restart lagi jika perlu
-            }
-        }, 3000);
+    if (fs.existsSync(SESSION_PATH) && removeSession) {
+      try {
+        fs.rmSync(SESSION_PATH, { recursive: true, force: true });
+        Logger.info('WHATSAPP', 'Session folder removed successfully');
+      } catch (err) {
+        Logger.warn('WHATSAPP', 'Failed to remove session folder', err);
+      }
     }
 
+    await this.destroyClient();
 
-  /**
-   * Format phone number to WhatsApp format
-   */
+    this.currentStatus = 'restarting';
+    this.broadcastStatus({ status: 'restarting', message: 'Restarting WhatsApp client...' });
+
+    setTimeout(async () => {
+      try {
+        await this.initialize(this.io);
+      } catch (err) {
+        Logger.error('WHATSAPP', 'Failed to initialize after restart', err);
+      } finally {
+        this.isRestarting = false;
+      }
+    }, 3000);
+  }
+
   formatPhoneNumber(phoneNumber) {
     let cleaned = phoneNumber.replace(/\D/g, '');
     if (cleaned.startsWith('0')) cleaned = '62' + cleaned.substring(1);
@@ -257,16 +228,12 @@ class WhatsAppClient {
     return cleaned + '@c.us';
   }
 
-  /**
-   * Send WhatsApp message
-   */
   async sendMessage(phoneNumber, message, attempt = 0) {
     if (!this.isReady) {
       Logger.error('WHATSAPP', `Cannot send message, client not ready`);
       return { success: false, error: 'Client not ready' };
     }
 
-    // optional: tunggu sebentar kalau client baru ready
     await new Promise(r => setTimeout(r, 500));
 
     try {
@@ -277,11 +244,10 @@ class WhatsAppClient {
     } catch (err) {
       Logger.error('WHATSAPP', `Send message failed to ${phoneNumber}`, err);
 
-      // jika detached frame, retry 1 kali
       if (err.message.includes('Attempted to use detached Frame') && attempt < 1) {
         Logger.warn('WHATSAPP', 'Detected detached frame, restarting client and retrying...');
         await this.restart(true);
-        await new Promise(r => setTimeout(r, 3000)); // tunggu client ready
+        await new Promise(r => setTimeout(r, 3000));
         return this.sendMessage(phoneNumber, message, attempt + 1);
       }
 
@@ -289,12 +255,6 @@ class WhatsAppClient {
     }
   }
 
-
-
-
-  /**
-   * Check if number is registered
-   */
   async isRegisteredUser(phoneNumber) {
     try {
       if (!this.isReady) throw new Error('WhatsApp client is not ready');
@@ -306,7 +266,6 @@ class WhatsAppClient {
       return { success: false, error: err.message };
     }
   }
-
 }
 
 module.exports = new WhatsAppClient();
