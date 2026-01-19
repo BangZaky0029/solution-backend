@@ -56,9 +56,20 @@ class Logger {
       ...error
     } : null;
 
+    
+
     const log = formatLog('ERROR', category, message, errorData);
     writeLog(LOG_FILES.ERROR, log);
     console.error(`❌ [${category}]`, message, errorData);
+  }
+
+  /**
+   * Log WARN
+   */
+  static warn(category, message, data = null) {
+    const log = formatLog('WARN', category, message, data);
+    writeLog(LOG_FILES.INFO, log); // Bisa simpan di info.log atau buat warn.log baru
+    console.warn(`⚠️ [${category}]`, message, data || '');
   }
 
   /**
@@ -144,5 +155,7 @@ setInterval(() => {
     Logger.clearOldLogs();
   }
 }, 60000); // Check every minute
+
+
 
 module.exports = Logger;

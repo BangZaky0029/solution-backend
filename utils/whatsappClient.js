@@ -1,6 +1,9 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const Logger = require('./logger');
+const fs = require('fs');
+const path = require('path');
+const SESSION_PATH = path.join(__dirname, '../.wwebjs_auth/session-gateway-solution');
 
 class WhatsAppClient {
   constructor() {
@@ -13,15 +16,27 @@ class WhatsAppClient {
     this.maxRetries = 3;
   }
 
+  async checkExistingSession(removeIfExists = false) {
+    if (fs.existsSync(SESSION_PATH)) {
+      Logger.warn('WHATSAPP', `Existing session folder found: ${SESSION_PATH}`);
+      if (removeIfExists) {
+        fs.rmSync(SESSION_PATH, { recursive: true, force: true });
+        Logger.info('WHATSAPP', 'Old session folder removed.');
+      }
+    }
+  }
+
+
   /**
    * Initialize WhatsApp Client
    * @param {Object} io - Socket.IO instance
    */
   async initialize(io) {
-    if (this.client) {
-      Logger.warn('WHATSAPP', 'Initialize called but client already exists');
+    if (this.client && this.isReady) {
+      Logger.info('WHATSAPP', 'Client already initialized and ready');
       return;
     }
+
 
     if (!io) throw new Error('Socket.IO instance required');
     this.io = io;
@@ -75,7 +90,7 @@ class WhatsAppClient {
       this.qrCode = null;
       this.currentStatus = 'ready';
       this.retryCount = 0;
-      this.broadcastStatus({ status: 'ready', message: 'WhatsApp connected successfully', info: this.client.info });
+      this.broadcastStatus({ status: 'ready', message: 'WhatsApp connected successfully', info: this.getInfo() });
     });
 
     this.client.on('authenticated', () => {
@@ -129,11 +144,25 @@ class WhatsAppClient {
     };
   }
 
+  // ✅ Tambahkan getInfo() di sini
+  getInfo() {
+    if (!this.client || !this.isReady) return null;
+    return this.client.info;
+  }
+
+
   /**
    * Handle initialization errors
    */
   handleInitError(error) {
     this.retryCount++;
+
+    if (error.message.includes('The browser is already running')) {
+      Logger.error('WHATSAPP', 'Browser already running. Waiting 10s before retry...');
+      setTimeout(() => this.restart(), 10000);
+      return;
+    }
+
     if (this.client) {
       this.client.removeAllListeners();
       this.client = null;
@@ -144,27 +173,36 @@ class WhatsAppClient {
       setTimeout(() => this.initialize(this.io), 5000);
     } else {
       this.currentStatus = 'failed';
-      this.broadcastStatus({ status: 'failed', message: 'Failed to initialize after multiple attempts', error: error.message });
-      Logger.error('WHATSAPP', 'Max retries reached. WhatsApp disabled.');
+      this.broadcastStatus({ status: 'failed', message: 'WhatsApp client disabled, manual restart required.' });
+      Logger.error('WHATSAPP', 'Max retries reached. WhatsApp disabled.', error);
     }
   }
+
 
   /**
    * Restart WhatsApp client
    */
   async restart() {
     Logger.info('WHATSAPP', 'Restarting client...');
+    await this.checkExistingSession(true);
     if (this.client) {
       this.client.removeAllListeners();
-      await this.client.destroy();
+      try {
+        await this.client.destroy(); // pastikan client lama benar-benar dihentikan
+      } catch(e) {
+        Logger.warn('WHATSAPP', 'Failed to destroy client, ignoring...', e);
+      }
       this.client = null;
     }
+
     this.isReady = false;
     this.qrCode = null;
     this.currentStatus = 'restarting';
     this.broadcastStatus({ status: 'restarting', message: 'Restarting WhatsApp client...' });
-    setTimeout(() => this.initialize(this.io), 3000);
+
+    setTimeout(() => this.initialize(this.io), 3000); // delay 3 detik
   }
+
 
   /**
    * Format phone number to WhatsApp format
@@ -180,22 +218,34 @@ class WhatsAppClient {
    * Send WhatsApp message
    */
   async sendMessage(phoneNumber, message) {
-    if (!this.isReady) throw new Error('WhatsApp client is not ready');
-    const formattedNumber = this.formatPhoneNumber(phoneNumber);
-    const sentMessage = await this.client.sendMessage(formattedNumber, message);
-    Logger.info('WHATSAPP', `✅ Message sent successfully to ${phoneNumber}`);
-    return { success: true, messageId: sentMessage.id._serialized, timestamp: sentMessage.timestamp, to: formattedNumber };
-  }
+    try {
+      if (!this.isReady) throw new Error('WhatsApp client is not ready');
+      const formattedNumber = this.formatPhoneNumber(phoneNumber);
+      const sentMessage = await this.client.sendMessage(formattedNumber, message);
+      Logger.info('WHATSAPP', `✅ Message sent successfully to ${phoneNumber}`);
+      return { success: true, messageId: sentMessage.id._serialized, timestamp: sentMessage.timestamp, to: formattedNumber };
+    } catch (err) {
+      Logger.error('WHATSAPP', `Send message failed to ${phoneNumber}`, err);
+      return { success: false, error: err.message };
+    }
+    }
+
 
   /**
    * Check if number is registered
    */
   async isRegisteredUser(phoneNumber) {
-    if (!this.isReady) throw new Error('WhatsApp client is not ready');
-    const formattedNumber = this.formatPhoneNumber(phoneNumber);
-    const isRegistered = await this.client.isRegisteredUser(formattedNumber);
-    return { isValid: isRegistered, formattedNumber: formattedNumber.replace('@c.us', ''), message: isRegistered ? 'Registered' : 'Not registered' };
+    try {
+      if (!this.isReady) throw new Error('WhatsApp client is not ready');
+      const formattedNumber = this.formatPhoneNumber(phoneNumber);
+      const isRegistered = await this.client.isRegisteredUser(formattedNumber);
+      return { isValid: isRegistered, formattedNumber: formattedNumber.replace('@c.us', ''), message: isRegistered ? 'Registered' : 'Not registered' };
+    } catch (err) {
+      Logger.error('WHATSAPP', `Validation failed for ${phoneNumber}`, err);
+      return { success: false, error: err.message };
+    }
   }
+
 }
 
 module.exports = new WhatsAppClient();
