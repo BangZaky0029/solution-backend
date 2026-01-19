@@ -45,7 +45,7 @@ class WhatsAppClient {
       try {
         Logger.info('WHATSAPP', 'Creating WhatsApp client...');
         this.client = new Client({
-          authStrategy: new LocalAuth({ clientId: `gateway-solution-${Date.now()}` }),
+          authStrategy: new LocalAuth({ clientId: 'gateway-solution' }) ,
           puppeteer: {
             headless: true,
             args: [
@@ -191,15 +191,8 @@ class WhatsAppClient {
     if (this.client) {
       try {
         this.client.removeAllListeners();
-
-        // cek client.browser sebelum destroy
-        if (this.client.browser && this.client.browser.isConnected()) {
-          await this.client.destroy();
-          Logger.info('WHATSAPP', 'Client destroyed successfully');
-        } else {
-          Logger.warn('WHATSAPP', 'Client browser not connected, skipping destroy');
-        }
-
+        await this.client.destroy(); // tidak perlu cek browser.isConnected(), destroy() sudah aman
+        Logger.info('WHATSAPP', 'Client destroyed successfully');
       } catch (err) {
         Logger.warn('WHATSAPP', 'Failed to destroy client, ignoring...', err);
       } finally {
@@ -208,40 +201,50 @@ class WhatsAppClient {
         this.qrCode = null;
         this.currentStatus = 'disconnected';
       }
-    } else {
-      Logger.warn('WHATSAPP', 'destroyClient called but client is null');
     }
   }
+
 
 
 
   /**
    * Restart WhatsApp client
    */
-  async restart(removeSession = false) {
-    Logger.info('WHATSAPP', 'Restarting client...');
+  // Restart client
+    async restart(removeSession = false) {
+        // Jika sudah sedang restart, hentikan duplicate restart
+        if (this.isRestarting) return;
+        this.isRestarting = true;
 
-    if (fs.existsSync(SESSION_PATH) && removeSession) {
-      try {
-        fs.rmSync(SESSION_PATH, { recursive: true, force: true });
-        Logger.info('WHATSAPP', 'Session folder removed successfully');
-      } catch (err) {
-        Logger.warn('WHATSAPP', 'Failed to remove session folder', err);
-      }
+        Logger.info('WHATSAPP', 'Restarting client...');
+
+        // Hapus session jika diminta
+        if (fs.existsSync(SESSION_PATH) && removeSession) {
+            try {
+                fs.rmSync(SESSION_PATH, { recursive: true, force: true });
+                Logger.info('WHATSAPP', 'Session folder removed successfully');
+            } catch (err) {
+                Logger.warn('WHATSAPP', 'Failed to remove session folder', err);
+            }
+        }
+
+        // Hancurkan client lama
+        await this.destroyClient();
+
+        this.currentStatus = 'restarting';
+        this.broadcastStatus({ status: 'restarting', message: 'Restarting WhatsApp client...' });
+
+        // Delay sedikit sebelum initialize
+        setTimeout(async () => {
+            try {
+                await this.initialize(this.io);
+            } catch (err) {
+                Logger.error('WHATSAPP', 'Failed to initialize after restart', err);
+            } finally {
+                this.isRestarting = false; // reset flag agar bisa restart lagi jika perlu
+            }
+        }, 3000);
     }
-
-    await this.destroyClient();
-
-    this.currentStatus = 'restarting';
-    this.broadcastStatus({ status: 'restarting', message: 'Restarting WhatsApp client...' });
-
-    // Delay sedikit sebelum initialize
-    setTimeout(() => this.initialize(this.io), 3000);
-  }
-
-
-
-
 
 
   /**
@@ -277,7 +280,7 @@ class WhatsAppClient {
       // jika detached frame, retry 1 kali
       if (err.message.includes('Attempted to use detached Frame') && attempt < 1) {
         Logger.warn('WHATSAPP', 'Detected detached frame, restarting client and retrying...');
-        await this.restart();
+        await this.restart(true);
         await new Promise(r => setTimeout(r, 3000)); // tunggu client ready
         return this.sendMessage(phoneNumber, message, attempt + 1);
       }
