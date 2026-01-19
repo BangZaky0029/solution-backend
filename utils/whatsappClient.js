@@ -226,17 +226,32 @@ class WhatsAppClient {
    * Send WhatsApp message
    */
   async sendMessage(phoneNumber, message) {
-    try {
-      if (!this.isReady) throw new Error('WhatsApp client is not ready');
-      const formattedNumber = this.formatPhoneNumber(phoneNumber);
-      const sentMessage = await this.client.sendMessage(formattedNumber, message);
-      Logger.info('WHATSAPP', `✅ Message sent successfully to ${phoneNumber}`);
-      return { success: true, messageId: sentMessage.id._serialized, timestamp: sentMessage.timestamp, to: formattedNumber };
-    } catch (err) {
-      Logger.error('WHATSAPP', `Send message failed to ${phoneNumber}`, err);
-      return { success: false, error: err.message };
+  if (!this.isReady) {
+    Logger.error('WHATSAPP', `Cannot send message, client not ready`);
+    return { success: false, error: 'Client not ready' };
+  }
+
+  // optional: tunggu sebentar kalau client baru ready
+  await new Promise(r => setTimeout(r, 1000));
+
+  try {
+    const formattedNumber = this.formatPhoneNumber(phoneNumber);
+    const sentMessage = await this.client.sendMessage(formattedNumber, message);
+    Logger.info('WHATSAPP', `✅ Message sent successfully to ${phoneNumber}`);
+    return { success: true, messageId: sentMessage.id._serialized, timestamp: sentMessage.timestamp, to: formattedNumber };
+  } catch (err) {
+    Logger.error('WHATSAPP', `Send message failed to ${phoneNumber}`, err);
+
+    // jika error detached, restart client otomatis
+    if (err.message.includes('Attempted to use detached Frame')) {
+      Logger.warn('WHATSAPP', 'Detected detached frame, restarting client...');
+      await this.restart();
     }
-    }
+
+    return { success: false, error: err.message };
+  }
+}
+
 
 
   /**
