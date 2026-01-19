@@ -166,7 +166,7 @@ class WhatsAppClient {
       if (data.qr) {
         this.io.emit('whatsapp-qr', data);
       }
-      Logger.debug('WHATSAPP', `Broadcasted status: ${data.status}`);
+      Logger.info('[WHATSAPP] Status broadcast', data)
     }
   }
 
