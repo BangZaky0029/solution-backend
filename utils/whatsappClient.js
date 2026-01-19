@@ -45,7 +45,7 @@ class WhatsAppClient {
       try {
         Logger.info('WHATSAPP', 'Creating WhatsApp client...');
         this.client = new Client({
-          authStrategy: new LocalAuth({ clientId: 'gateway-solution' }),
+          authStrategy: new LocalAuth({ clientId: `gateway-solution-${Date.now()}` }),
           puppeteer: {
             headless: true,
             args: [
@@ -59,6 +59,7 @@ class WhatsAppClient {
             ]
           }
         });
+
 
         this.setupEventHandlers();
         Logger.info('WHATSAPP', 'Initializing WhatsApp client...');
@@ -176,7 +177,7 @@ class WhatsAppClient {
 
     if (this.retryCount < this.maxRetries) {
       Logger.warn('WHATSAPP', `Retry ${this.retryCount}/${this.maxRetries} in 5 seconds...`);
-      setTimeout(() => this.initialize(this.io), 5000);
+      setTimeout(() => this.initialize(this.io), 3000); // delay 3 detik
     } else {
       this.currentStatus = 'failed';
       this.broadcastStatus({ status: 'failed', message: 'WhatsApp client disabled, manual restart required.' });
@@ -190,8 +191,15 @@ class WhatsAppClient {
     if (this.client) {
       try {
         this.client.removeAllListeners();
-        await this.client.destroy();
-        Logger.info('WHATSAPP', 'Client destroyed successfully');
+
+        // cek client.browser sebelum destroy
+        if (this.client.browser && this.client.browser.isConnected()) {
+          await this.client.destroy();
+          Logger.info('WHATSAPP', 'Client destroyed successfully');
+        } else {
+          Logger.warn('WHATSAPP', 'Client browser not connected, skipping destroy');
+        }
+
       } catch (err) {
         Logger.warn('WHATSAPP', 'Failed to destroy client, ignoring...', err);
       } finally {
@@ -200,8 +208,11 @@ class WhatsAppClient {
         this.qrCode = null;
         this.currentStatus = 'disconnected';
       }
+    } else {
+      Logger.warn('WHATSAPP', 'destroyClient called but client is null');
     }
   }
+
 
 
   /**
@@ -210,7 +221,7 @@ class WhatsAppClient {
   async restart(removeSession = false) {
     Logger.info('WHATSAPP', 'Restarting client...');
 
-    if (removeSession && fs.existsSync(SESSION_PATH)) {
+    if (fs.existsSync(SESSION_PATH) && removeSession) {
       try {
         fs.rmSync(SESSION_PATH, { recursive: true, force: true });
         Logger.info('WHATSAPP', 'Session folder removed successfully');
@@ -224,8 +235,11 @@ class WhatsAppClient {
     this.currentStatus = 'restarting';
     this.broadcastStatus({ status: 'restarting', message: 'Restarting WhatsApp client...' });
 
+    // Delay sedikit sebelum initialize
     setTimeout(() => this.initialize(this.io), 3000);
   }
+
+
 
 
 
