@@ -1,7 +1,5 @@
-// server.js
 require('dotenv').config();
 const http = require('http');
-
 const app = require('./app');
 const { initSocket, getIO } = require('./socket');
 const whatsappClient = require('./utils/whatsappClient');
@@ -15,12 +13,12 @@ const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);
 
 // ================================
-// INIT SOCKET.IO (WAJIB SEBELUM LISTEN)
+// INIT SOCKET.IO
 // ================================
 initSocket(server);
 
 // ================================
-// START SERVER (INI KUNCI UTAMA)
+// START SERVER
 // ================================
 server.listen(PORT, '0.0.0.0', () => {
   Logger.info('SERVER', `🚀 Server running on port ${PORT}`);
@@ -28,7 +26,7 @@ server.listen(PORT, '0.0.0.0', () => {
 });
 
 // ================================
-// INIT WHATSAPP (SETELAH SERVER & SOCKET)
+// INIT WHATSAPP (SAFE)
 // ================================
 if (process.env.WHATSAPP_ENABLED !== 'false') {
   setTimeout(() => {
@@ -40,3 +38,15 @@ if (process.env.WHATSAPP_ENABLED !== 'false') {
     }
   }, 3000);
 }
+
+// ================================
+// HANDLE UNCAUGHT ERRORS
+// ================================
+process.on('uncaughtException', (err) => {
+  Logger.error('SERVER', 'Uncaught Exception', err);
+});
+process.on('unhandledRejection', (err) => {
+  Logger.error('SERVER', 'Unhandled Rejection', err);
+});
+
+module.exports = server;
