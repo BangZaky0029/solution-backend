@@ -4,26 +4,6 @@ const Logger = require('./utils/logger');
 const whatsappClient = require('./utils/whatsappClient'); // instance singleton
 
 let io;
-
-io.on('connection', (socket) => {
-  Logger.info('SOCKET', `Client connected: ${socket.id}`);
-
-  // Kirim status WhatsApp saat baru connect
-  const status = whatsappClient.getStatus();
-  socket.emit('whatsapp-status', status);
-
-  // Request QR manual
-  socket.on('request-qr', () => {
-    const status = whatsappClient.getStatus();
-    socket.emit('whatsapp-status', status);
-  });
-
-  socket.on('disconnect', () => {
-    Logger.info('SOCKET', `Client disconnected: ${socket.id}`);
-  });
-});
-
-
 /**
  * Initialize Socket.IO server
  * @param {http.Server} server - HTTP server
@@ -42,34 +22,31 @@ const initSocket = (server) => {
   io.on('connection', (socket) => {
     Logger.info('SOCKET', `Client connected: ${socket.id}`);
 
-    // Handle QR code / status request from frontend
-    socket.on('request-qr', async () => {
-      try {
-        if (!whatsappClient) {
-          Logger.warn('SOCKET', 'WhatsApp client not ready');
-          socket.emit('whatsapp-status', { status: 'not_ready', isReady: false });
-          return;
-        }
+    // Kirim status WA saat baru connect
+    const status = whatsappClient.getStatus();
+    socket.emit('whatsapp-status', {
+      status: status.status,
+      isReady: status.isReady,
+      qr: status.qrCode || null,
+      info: status.info || null
+    });
 
-        const status = whatsappClient.getStatus();
-
-        // Kirim status + QR sekaligus
-        socket.emit('whatsapp-status', {
-          status: status.status,
-          isReady: status.isReady,
-          qr: status.qrCode || null
-        });
-
-      } catch (err) {
-        Logger.error('SOCKET', 'Failed to get WhatsApp status', err);
-        socket.emit('whatsapp-status', { status: 'error', isReady: false });
-      }
+    // request QR manual
+    socket.on('request-qr', () => {
+      const status = whatsappClient.getStatus();
+      socket.emit('whatsapp-status', {
+        status: status.status,
+        isReady: status.isReady,
+        qr: status.qrCode || null,
+        info: status.info || null
+      });
     });
 
     socket.on('disconnect', () => {
       Logger.info('SOCKET', `Client disconnected: ${socket.id}`);
     });
   });
+
 
   return io;
 };
