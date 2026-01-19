@@ -31,12 +31,12 @@ server.listen(PORT, '0.0.0.0', () => {
 // INIT WHATSAPP (SETELAH SERVER & SOCKET)
 // ================================
 if (process.env.WHATSAPP_ENABLED !== 'false') {
-  // setTimeout(() => {
-  //   try {
-  //     Logger.info('WHATSAPP', 'Initializing WhatsApp Client...');
-  //     whatsappClient.initialize(getIO());
-  //   } catch (err) {
-  //     Logger.error('WHATSAPP', 'Failed to init WhatsApp', err);
-  //   }
-  // }, 3000);
+  setTimeout(() => {
+    try {
+      Logger.info('WHATSAPP', 'Initializing WhatsApp Client...');
+      whatsappClient.initialize(getIO());
+    } catch (err) {
+      Logger.error('WHATSAPP', 'Failed to init WhatsApp', err);
+    }
+  }, 3000);
 }
