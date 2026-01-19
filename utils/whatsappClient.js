@@ -196,7 +196,7 @@ class WhatsAppClient {
     Logger.info('WHATSAPP', 'Restarting client...');
     this.retryCount = 0;
 
-    if (fs.existsSync(SESSION_PATH) && removeSession) {
+    if (removeSession && fs.existsSync(SESSION_PATH)) {
       try {
         fs.rmSync(SESSION_PATH, { recursive: true, force: true });
         Logger.info('WHATSAPP', 'Session folder removed successfully');
@@ -220,6 +220,7 @@ class WhatsAppClient {
       }
     }, 3000);
   }
+
 
   formatPhoneNumber(phoneNumber) {
     let cleaned = phoneNumber.replace(/\D/g, '');
@@ -256,12 +257,12 @@ class WhatsAppClient {
     } catch (err) {
       Logger.error('WHATSAPP', `Send message failed to ${phoneNumber}`, err);
 
-      if (err.message.includes('markedUnread') || err.message.includes('detached Frame') && attempt < 1) {
-        Logger.warn('WHATSAPP', 'Detected WhatsApp internal error, restarting client and retrying...');
-        await this.restart(true);
-        await new Promise(r => setTimeout(r, 4000));
+      if ((err.message.includes('markedUnread') || err.message.includes('detached Frame')) && attempt < 2) {
+        Logger.warn('WHATSAPP', 'Detected temporary internal error, retrying message...');
+        await new Promise(r => setTimeout(r, 2000)); // delay kecil
         return this.sendMessage(phoneNumber, message, attempt + 1);
       }
+
 
       return { success: false, error: err.message };
     }
