@@ -1,6 +1,7 @@
+// socket.js
 const { Server } = require('socket.io');
 const Logger = require('./utils/logger');
-const whatsappClient = require('./utils/whatsappClient'); // gunakan instance singleton
+const whatsappClient = require('./utils/whatsappClient'); // instance singleton
 
 let io;
 
@@ -22,7 +23,7 @@ const initSocket = (server) => {
   io.on('connection', (socket) => {
     Logger.info('SOCKET', `Client connected: ${socket.id}`);
 
-    // Handle QR code request from frontend
+    // Handle QR code / status request from frontend
     socket.on('request-qr', async () => {
       try {
         if (!whatsappClient) {
@@ -33,19 +34,16 @@ const initSocket = (server) => {
 
         const status = whatsappClient.getStatus();
 
+        // Kirim status + QR sekaligus
         socket.emit('whatsapp-status', {
           status: status.status,
-          isReady: status.isReady
+          isReady: status.isReady,
+          qr: status.qrCode || null
         });
 
-        if (status.qrCode) {
-          socket.emit('whatsapp-qr', {
-            status: status.status,
-            qr: status.qrCode
-          });
-        }
       } catch (err) {
         Logger.error('SOCKET', 'Failed to get WhatsApp status', err);
+        socket.emit('whatsapp-status', { status: 'error', isReady: false });
       }
     });
 
