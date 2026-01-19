@@ -237,36 +237,46 @@ class WhatsAppClient {
 
     const formattedNumber = this.formatPhoneNumber(phoneNumber);
 
-    // Cek dulu chat ada atau belum
     try {
-      const chat = await this.client.getChatById(formattedNumber);
-      if (!chat) {
-        Logger.info('WHATSAPP', `Creating new chat with ${formattedNumber}`);
+      // Pastikan chat ready
+      let chat;
+      try {
+        chat = await this.client.getChatById(formattedNumber);
+        if (!chat) {
+          Logger.info('WHATSAPP', `Creating new chat with ${formattedNumber}`);
+          chat = await this.client.sendMessage(formattedNumber, ''); // dummy msg to init chat
+          await chat.delete(true); // hapus dummy
+        }
+      } catch (err) {
+        Logger.warn('WHATSAPP', `Chat not found, will send anyway`, err);
       }
-    } catch (err) {
-      Logger.warn('WHATSAPP', `Failed to fetch chat for ${formattedNumber}, will try anyway`, err);
-    }
 
-    // Delay kecil untuk stabilisasi internal WhatsApp
-    await new Promise(r => setTimeout(r, 1000));
+      // Delay kecil untuk stabilisasi internal
+      await new Promise(r => setTimeout(r, 1000));
 
-    try {
       const sentMessage = await this.client.sendMessage(formattedNumber, message);
       Logger.info('WHATSAPP', `✅ Message sent successfully to ${phoneNumber}`);
-      return { success: true, messageId: sentMessage.id._serialized, timestamp: sentMessage.timestamp, to: formattedNumber };
+      return {
+        success: true,
+        messageId: sentMessage.id._serialized,
+        timestamp: sentMessage.timestamp,
+        to: formattedNumber
+      };
+
     } catch (err) {
       Logger.error('WHATSAPP', `Send message failed to ${phoneNumber}`, err);
 
+      // retry for temporary internal error
       if ((err.message.includes('markedUnread') || err.message.includes('detached Frame')) && attempt < 2) {
         Logger.warn('WHATSAPP', 'Detected temporary internal error, retrying message...');
-        await new Promise(r => setTimeout(r, 2000)); // delay kecil
+        await new Promise(r => setTimeout(r, 2000));
         return this.sendMessage(phoneNumber, message, attempt + 1);
       }
-
 
       return { success: false, error: err.message };
     }
   }
+
 
 
   async isRegisteredUser(phoneNumber) {
