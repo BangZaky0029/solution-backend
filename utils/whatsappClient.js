@@ -234,26 +234,39 @@ class WhatsAppClient {
       return { success: false, error: 'Client not ready' };
     }
 
-    await new Promise(r => setTimeout(r, 500));
+    const formattedNumber = this.formatPhoneNumber(phoneNumber);
+
+    // Cek dulu chat ada atau belum
+    try {
+      const chat = await this.client.getChatById(formattedNumber);
+      if (!chat) {
+        Logger.info('WHATSAPP', `Creating new chat with ${formattedNumber}`);
+      }
+    } catch (err) {
+      Logger.warn('WHATSAPP', `Failed to fetch chat for ${formattedNumber}, will try anyway`, err);
+    }
+
+    // Delay kecil untuk stabilisasi internal WhatsApp
+    await new Promise(r => setTimeout(r, 1000));
 
     try {
-      const formattedNumber = this.formatPhoneNumber(phoneNumber);
       const sentMessage = await this.client.sendMessage(formattedNumber, message);
       Logger.info('WHATSAPP', `✅ Message sent successfully to ${phoneNumber}`);
       return { success: true, messageId: sentMessage.id._serialized, timestamp: sentMessage.timestamp, to: formattedNumber };
     } catch (err) {
       Logger.error('WHATSAPP', `Send message failed to ${phoneNumber}`, err);
 
-      if (err.message.includes('Attempted to use detached Frame') && attempt < 1) {
-        Logger.warn('WHATSAPP', 'Detected detached frame, restarting client and retrying...');
+      if (err.message.includes('markedUnread') || err.message.includes('detached Frame') && attempt < 1) {
+        Logger.warn('WHATSAPP', 'Detected WhatsApp internal error, restarting client and retrying...');
         await this.restart(true);
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 4000));
         return this.sendMessage(phoneNumber, message, attempt + 1);
       }
 
       return { success: false, error: err.message };
     }
   }
+
 
   async isRegisteredUser(phoneNumber) {
     try {
