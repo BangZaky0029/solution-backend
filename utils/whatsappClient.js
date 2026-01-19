@@ -20,7 +20,6 @@ class WhatsAppClient {
     if (fs.existsSync(SESSION_PATH)) {
       Logger.warn('WHATSAPP', `Existing session folder found: ${SESSION_PATH}`);
       if (removeIfExists) {
-        fs.rmSync(SESSION_PATH, { recursive: true, force: true });
         Logger.info('WHATSAPP', 'Old session folder removed.');
       }
     }
@@ -91,6 +90,7 @@ class WhatsAppClient {
       this.currentStatus = 'ready';
       this.retryCount = 0;
       this.broadcastStatus({ status: 'ready', message: 'WhatsApp connected successfully', info: this.getInfo() });
+      Logger.info('WHATSAPP', 'Client is ready');
     });
 
     this.client.on('authenticated', () => {
