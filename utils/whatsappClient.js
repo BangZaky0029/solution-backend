@@ -48,6 +48,7 @@ class WhatsAppClient {
       this.client = new Client({
         authStrategy: new LocalAuth({ clientId: 'gateway-solution' }),
         puppeteer: {
+          executablePath: '/usr/bin/chromium-browser', // 🔥 WAJIB
           headless: true,
           args: [
             '--no-sandbox',
@@ -60,6 +61,7 @@ class WhatsAppClient {
           ]
         }
       });
+
 
       this.setupEventHandlers();
       Logger.info('WHATSAPP', 'Initializing WhatsApp client...');
