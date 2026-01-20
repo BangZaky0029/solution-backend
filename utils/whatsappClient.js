@@ -34,46 +34,55 @@ class WhatsAppClient {
   }
 
   // Initialize WhatsApp client
-  async initialize(io) {
-    await this.checkExistingSession(false);
-    if (this.client && this.isReady) {
-      Logger.info('WHATSAPP', 'Client already initialized and ready');
-      return;
+    async initialize(io) {
+      await this.checkExistingSession(false);
+
+      if (this.client && this.isReady) {
+        Logger.info('WHATSAPP', 'Client already initialized and ready');
+        return;
+      }
+
+      if (!io) throw new Error('Socket.IO instance required');
+      this.io = io;
+
+      try {
+        Logger.info('WHATSAPP', 'Creating WhatsApp client...');
+
+        this.client = new Client({
+          authStrategy: new LocalAuth({
+            clientId: 'gateway-solution',
+            dataPath: '/var/www/solution-backend/.wwebjs_auth' // 🔥 FIX KRITIS
+          }),
+          puppeteer: {
+            headless: 'new',
+            executablePath: '/usr/bin/google-chrome',
+            args: [
+              '--no-sandbox',
+              '--disable-setuid-sandbox',
+              '--disable-dev-shm-usage',
+              '--disable-gpu',
+              '--no-zygote',
+              '--single-process'
+            ]
+          }
+        });
+
+        this.setupEventHandlers();
+
+        Logger.info('WHATSAPP', 'Initializing WhatsApp client...');
+        await this.client.initialize();
+
+        Logger.info('WHATSAPP', 'Client initialized successfully');
+      } catch (error) {
+        Logger.error(
+          'WHATSAPP',
+          `Initialization error (retryCount: ${this.retryCount})`,
+          error
+        );
+        this.handleInitError(error);
+      }
     }
 
-    if (!io) throw new Error('Socket.IO instance required');
-    this.io = io;
-
-    try {
-      Logger.info('WHATSAPP', 'Creating WhatsApp client...');
-      this.client = new Client({
-        authStrategy: new LocalAuth({ clientId: 'gateway-solution' }),
-        puppeteer: {
-          headless: true,
-          executablePath: '/usr/bin/chromium-browser', // ✅ FIX UTAMA
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--disable-gpu'
-          ]
-        }
-      });
-
-
-
-      this.setupEventHandlers();
-      Logger.info('WHATSAPP', 'Initializing WhatsApp client...');
-      await this.client.initialize();
-      Logger.info('WHATSAPP', 'Client initialized successfully');
-    } catch (error) {
-      Logger.error('WHATSAPP', `Initialization error (retryCount: ${this.retryCount})`, error);
-      this.handleInitError(error);
-    }
-  }
 
   setupEventHandlers() {
     this.client.on('qr', async (qr) => {
