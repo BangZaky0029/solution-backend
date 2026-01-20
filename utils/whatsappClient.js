@@ -33,27 +33,21 @@ class WhatsAppClient {
     }
   }
 
-  // Initialize WhatsApp client
-    async initialize(io) {
+  async initialize(io) {
       if (this.isInitializing) return;
-        this.isInitializing = true;
+      this.isInitializing = true;
 
+      try {
         await this.checkExistingSession(false);
+
         if (this.client && this.isReady) {
           Logger.info('WHATSAPP', 'Client already initialized and ready');
-          this.isInitializing = false;
           return;
         }
 
-      if (this.client && this.isReady) {
-        Logger.info('WHATSAPP', 'Client already initialized and ready');
-        return;
-      }
+        if (!io) throw new Error('Socket.IO instance required');
+        this.io = io;
 
-      if (!io) throw new Error('Socket.IO instance required');
-      this.io = io;
-
-      try {
         Logger.info('WHATSAPP', 'Creating WhatsApp client...');
 
         this.client = new Client({
@@ -71,7 +65,8 @@ class WhatsAppClient {
               '--disable-gpu',
               '--no-zygote',
               '--single-process'
-            ]
+            ],
+            dumpio: true // 🔹 optional: log browser output untuk debugging
           }
         });
 
@@ -81,6 +76,7 @@ class WhatsAppClient {
         await this.client.initialize();
 
         Logger.info('WHATSAPP', 'Client initialized successfully');
+
       } catch (error) {
         Logger.error(
           'WHATSAPP',
@@ -88,8 +84,13 @@ class WhatsAppClient {
           error
         );
         this.handleInitError(error);
+
+      } finally {
+        // pastikan flag isInitializing di-reset walau error
+        this.isInitializing = false;
       }
     }
+
 
 
   setupEventHandlers() {
