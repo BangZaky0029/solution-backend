@@ -49,6 +49,7 @@ class WhatsAppClient {
         authStrategy: new LocalAuth({ clientId: 'gateway-solution' }),
         puppeteer: {
           headless: true,
+          executablePath: '/usr/bin/chromium-browser', // ✅ FIX UTAMA
           args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -60,6 +61,7 @@ class WhatsAppClient {
           ]
         }
       });
+
 
 
       this.setupEventHandlers();
