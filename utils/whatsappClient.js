@@ -35,6 +35,7 @@ class WhatsAppClient {
 
   // Initialize WhatsApp client
   async initialize(io) {
+    await this.checkExistingSession(false);
     if (this.client && this.isReady) {
       Logger.info('WHATSAPP', 'Client already initialized and ready');
       return;
