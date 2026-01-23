@@ -1,4 +1,6 @@
-// C:\codingVibes\nuansasolution\.mainweb\payments\solution-backend\server.js
+// =========================================
+// FILE: server.js - FIXED
+// =========================================
 
 require('dotenv').config();
 const http = require('http');
@@ -9,45 +11,31 @@ const Logger = require('./utils/logger');
 
 const PORT = process.env.PORT || 5000;
 
-// ================================
-// CREATE HTTP SERVER
-// ================================
 const server = http.createServer(app);
 
-// ================================
-// INIT SOCKET.IO
-// ================================
-const io = initSocket(server); // dapat instance io
+// ✅ Initialize Socket.IO
+const io = initSocket(server);
 Logger.info('SERVER', '🔌 Socket.IO initialized');
 
-// ================================
-// START SERVER
-// ================================
+// ✅✅✅ CRITICAL: Store io in app for route access
+app.set('io', io);
+Logger.info('SERVER', '✅ Socket.IO stored in app');
+
 server.listen(PORT, '0.0.0.0', async () => {
   Logger.info('SERVER', `🚀 Server running on port ${PORT}`);
 
-  // ================================
-  // INIT WHATSAPP CLIENT (SAFE)
-  // ================================
   if (process.env.WHATSAPP_ENABLED !== 'false') {
     try {
-      Logger.info('WHATSAPP', 'Initializing WhatsApp Client...');
-      await whatsappClient.initialize(io); // inject io ke WA client
-      Logger.info('WHATSAPP', 'WhatsApp Client initialized successfully');
+      Logger.info('WHATSAPP', 'Initializing WhatsApp...');
+      await whatsappClient.initialize(io);
+      Logger.info('WHATSAPP', '✅ WhatsApp initialized');
     } catch (err) {
-      Logger.error('WHATSAPP', 'Failed to init WhatsApp Client', err);
+      Logger.error('WHATSAPP', 'Init failed', err);
     }
   }
 });
 
-// ================================
-// HANDLE UNCAUGHT ERRORS
-// ================================
-process.on('uncaughtException', (err) => {
-  Logger.error('SERVER', 'Uncaught Exception', err);
-});
-process.on('unhandledRejection', (err) => {
-  Logger.error('SERVER', 'Unhandled Rejection', err);
-});
+process.on('uncaughtException', (err) => Logger.error('SERVER', 'Uncaught Exception', err));
+process.on('unhandledRejection', (err) => Logger.error('SERVER', 'Unhandled Rejection', err));
 
 module.exports = server;
