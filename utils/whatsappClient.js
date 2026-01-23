@@ -95,43 +95,52 @@ class WhatsAppClient {
 
       Logger.info('WHATSAPP', '📱 Creating WhatsApp client with Chromium...');
 
-     this.client = new Client({
-  authStrategy: new LocalAuth({
-    clientId: 'gateway-solution',
-    dataPath: '/var/www/solution-backend/.wwebjs_auth'
-  }),
+      // ✅ CHROMIUM CONFIG
+      this.client = new Client({
+        authStrategy: new LocalAuth({
+          clientId: 'gateway-solution',
+          dataPath: '/var/www/solution-backend/.wwebjs_auth'
+        }),
+        puppeteer: {
+          headless: 'new',
+          executablePath: '/usr/bin/chromium', // ✅ CHROMIUM PATH
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--disable-software-rasterizer',
+            '--disable-extensions',
+            '--disable-background-networking',
+            '--no-first-run',
+            '--no-default-browser-check',
+            '--disable-sync',
+            '--disable-breakpad',
+            '--disable-client-side-phishing-detection',
+            '--disable-crash-reporter',
+            '--disable-oopr-debug-crash-dump',
+            '--no-crash-upload',
+            '--disable-low-res-tiling'
+          ],
+          timeout: 90000, // 90 seconds
+          protocolTimeout: 90000
+        }
+      });
 
-  // 🔥 INI KUNCI NYAWA
-  webVersionCache: {
-    type: 'none'
-  },
+      this.setupEventHandlers();
 
-  puppeteer: {
-    headless: 'new',
-    executablePath: '/usr/bin/chromium',
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--disable-software-rasterizer',
-      '--disable-extensions',
-      '--disable-background-networking',
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-sync',
-      '--disable-breakpad',
-      '--disable-client-side-phishing-detection',
-      '--disable-crash-reporter',
-      '--disable-oopr-debug-crash-dump',
-      '--no-crash-upload',
-      '--disable-low-res-tiling'
-    ],
-    timeout: 90000,
-    protocolTimeout: 90000
+      Logger.info('WHATSAPP', '🚀 Initializing client...');
+      await this.client.initialize();
+
+      Logger.info('WHATSAPP', '✅ Client initialized successfully');
+
+    } catch (error) {
+      Logger.error('WHATSAPP', `Init error (retry: ${this.retryCount})`, error);
+      this.handleInitError(error);
+    } finally {
+      this.isInitializing = false;
+    }
   }
-});
-
 
   /**
    * ✅ Setup event handlers
