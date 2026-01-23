@@ -103,20 +103,28 @@ class WhatsAppClient {
     Logger.info('WHATSAPP', 'Initializing WhatsApp client...');
 
     this.client = new Client({
-      authStrategy: new LocalAuth({ clientId: 'main-session' }),
+      authStrategy: new LocalAuth({
+        clientId: 'main-session',
+      }),
       puppeteer: {
         headless: 'new',
         executablePath: process.env.CHROME_PATH,
+        timeout: 0,
+        waitForInitialPage: true,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
           '--disable-gpu',
-          '--single-process',
+          '--no-zygote',
+          '--no-first-run',
+          '--disable-features=site-per-process',
+          '--disable-background-timer-throttling',
         ],
       },
+    })
 
-    });
+
     this.client.on('authenticated', () => {
       Logger.info('WHATSAPP', 'Authenticated successfully');
     });
