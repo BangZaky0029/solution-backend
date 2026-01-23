@@ -15,22 +15,19 @@ app.set('io', io)
 // routes
 app.use('/whatsapp', require('./routes/whatsapp'))
 
-server.listen(PORT, '0.0.0.0', async () => {
+server.listen(PORT, '0.0.0.0', () => {
   Logger.info('SERVER', `🚀 Server running on port ${PORT}`)
 
-  // auto init
-  await whatsappClient.initialize(io)
-
-  // auto health check
+  // ⏳ delay WA init (VPS butuh waktu)
   setTimeout(async () => {
-    const health = await whatsappClient.healthCheck()
-    Logger.info('WHATSAPP', 'Health check result', health)
-
-    if (!health.healthy) {
-      Logger.warn('WHATSAPP', 'Health failed, restarting...')
-      await whatsappClient.restart(io)
+    try {
+      Logger.info('WHATSAPP', 'Delayed init starting...')
+      await whatsappClient.initialize(io)
+    } catch (err) {
+      Logger.error('WHATSAPP', 'Init failed', err)
     }
-  }, 5000)
+  }, 8000) // ⬅️ WAJIB
 })
+
 
 module.exports = server
