@@ -1,8 +1,4 @@
-// =========================================
-// FILE: controllers/authController.js - UPDATED
-// Enhanced with Phone Validation + WhatsApp Notifications
-// =========================================
-
+// controllers/authController.js
 const db = require('../config/db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -11,6 +7,7 @@ const Logger = require('../utils/logger');
 const OTPValidator = require('../utils/otpValidator');
 const whatsappClient = require('../utils/whatsappClient');
 const { WhatsAppTemplates } = require('../utils/whatsappTemplates');
+const PhoneValidator = require('../utils/phoneValidator');
 
 /**
  * REGISTER
@@ -29,17 +26,19 @@ exports.register = async (req, res) => {
       });
     }
 
-    // Validate phone format
-    const phoneRegex = /^(\+62|62|0)[0-9]{9,12}$/;
-    if (!phoneRegex.test(phone)) {
+    // 🔥 VALIDATE PHONE FORMAT
+    const phoneValidation = PhoneValidator.validate(phone);
+    if (!phoneValidation.valid) {
       Logger.auth('REGISTER_FAILED', 'Invalid phone format', { phone });
       return res.status(400).json({
         success: false,
-        message: 'Format nomor WhatsApp tidak valid. Gunakan format: 08xxx atau +628xxx'
+        message: phoneValidation.message
       });
     }
 
-    Logger.auth('REGISTER_ATTEMPT', `Email: ${email}, Phone: ${phone}`);
+    const normalizedPhone = phoneValidation.normalized;
+
+    Logger.auth('REGISTER_ATTEMPT', `Email: ${email}, Phone: ${normalizedPhone}`);
 
     // ✅ CHECK: Email already exists
     const [existingEmail] = await db.query(
@@ -55,32 +54,47 @@ exports.register = async (req, res) => {
       });
     }
 
-    // ✅ CHECK: Phone already exists (CRITICAL)
+    // ✅ CHECK: Phone already exists
     const [existingPhone] = await db.query(
       'SELECT id, name FROM users WHERE phone = ?',
-      [phone]
+      [normalizedPhone]
     );
 
     if (existingPhone.length > 0) {
-      Logger.auth('REGISTER_FAILED', 'Phone already registered', { phone });
+      Logger.auth('REGISTER_FAILED', 'Phone already registered', { phone: normalizedPhone });
       return res.status(400).json({
         success: false,
-        message: 'Nomor WhatsApp sudah terdaftar. Silakan gunakan nomor WhatsApp yang lain.'
+        message: 'Nomor WhatsApp sudah terdaftar. Silakan gunakan nomor lain.'
       });
+    }
+
+    // 🔥 CHECK: WhatsApp number is valid and registered on WhatsApp
+    try {
+      const isRegistered = await whatsappClient.checkNumberRegistered(normalizedPhone);
+      if (!isRegistered) {
+        Logger.auth('REGISTER_FAILED', 'WhatsApp number not registered', { phone: normalizedPhone });
+        return res.status(400).json({
+          success: false,
+          message: 'Nomor WhatsApp tidak terdaftar di WhatsApp. Pastikan nomor Anda aktif.'
+        });
+      }
+    } catch (error) {
+      Logger.error('WHATSAPP', 'Failed to check WhatsApp registration', error);
+      // Continue if check fails - don't block registration
     }
 
     // Hash password
     const hashedPassword = bcrypt.hashSync(password, 10);
 
-    // Insert user
+    // Insert user with normalized phone
     const [result] = await db.query(
       'INSERT INTO users (name, email, phone, password) VALUES (?, ?, ?, ?)',
-      [name, email, phone, hashedPassword]
+      [name, email, normalizedPhone, hashedPassword]
     );
 
     const userId = result.insertId;
 
-    Logger.auth('REGISTER_SUCCESS', `User created: ${userId}`, { email, phone });
+    Logger.auth('REGISTER_SUCCESS', `User created: ${userId}`, { email, phone: normalizedPhone });
 
     // Check rate limit
     const rateLimit = await OTPValidator.checkRateLimit(userId);
@@ -94,20 +108,20 @@ exports.register = async (req, res) => {
     // Generate OTP
     const { otp } = await OTPValidator.createOTP(userId, 'verify');
 
-    // Send OTP via WhatsApp
+    // 🔥 Send OTP via WhatsApp
     let whatsappSent = false;
     let whatsappError = null;
 
     try {
       if (whatsappClient.isReady) {
         const message = WhatsAppTemplates.registrationOTP(name, otp);
-        await whatsappClient.sendMessage(phone, message);
+        await whatsappClient.sendMessage(normalizedPhone, message);
         whatsappSent = true;
 
-        Logger.whatsapp('REGISTRATION_OTP', `OTP sent to ${phone}`, { userId });
+        Logger.whatsapp('REGISTRATION_OTP', `OTP sent to ${normalizedPhone}`, { userId, otp });
       } else {
         whatsappError = 'WhatsApp bot is not connected';
-        Logger.whatsapp('OTP_FAILED', 'WhatsApp not ready', { phone });
+        Logger.whatsapp('OTP_FAILED', 'WhatsApp not ready', { phone: normalizedPhone });
       }
     } catch (error) {
       whatsappError = error.message;
@@ -137,10 +151,11 @@ exports.register = async (req, res) => {
       success: true,
       message: whatsappSent
         ? 'Registrasi berhasil! Kode OTP telah dikirim ke WhatsApp Anda.'
-        : `Registrasi berhasil! Kode OTP: ${otp}`,
+        : `Registrasi berhasil! Kode OTP: ${otp}. (WhatsApp error: ${whatsappError})`,
       otpSent: whatsappSent,
       viaWhatsApp: whatsappSent,
       whatsappError: whatsappError,
+      phone: PhoneValidator.formatDisplay(normalizedPhone),
       // Only in development
       ...(process.env.NODE_ENV === 'development' && { otp })
     });
@@ -206,7 +221,7 @@ exports.verifyOtp = async (req, res) => {
 
     Logger.auth('VERIFY_OTP_SUCCESS', `User verified: ${user.id}`);
 
-    // Send welcome message
+    // 🔥 Send welcome message
     try {
       if (whatsappClient.isReady) {
         // Get trial package name
@@ -295,7 +310,7 @@ exports.resendOtp = async (req, res) => {
     // Generate new OTP
     const { otp } = await OTPValidator.createOTP(user.id, 'verify');
 
-    // Send via WhatsApp
+    // 🔥 Send via WhatsApp
     let whatsappSent = false;
     let whatsappError = null;
 
@@ -305,7 +320,7 @@ exports.resendOtp = async (req, res) => {
         await whatsappClient.sendMessage(user.phone, message);
         whatsappSent = true;
 
-        Logger.whatsapp('RESEND_OTP', `OTP resent to ${user.phone}`, { userId: user.id });
+        Logger.whatsapp('RESEND_OTP', `OTP resent to ${user.phone}`, { userId: user.id, otp });
       } else {
         whatsappError = 'WhatsApp bot is not connected';
         Logger.whatsapp('RESEND_OTP_FAILED', 'WhatsApp not ready');
@@ -319,7 +334,7 @@ exports.resendOtp = async (req, res) => {
       success: true,
       message: whatsappSent
         ? 'OTP baru telah dikirim ke WhatsApp Anda'
-        : `OTP baru: ${otp}`,
+        : `OTP baru: ${otp}. (WhatsApp error: ${whatsappError})`,
       otpSent: whatsappSent,
       viaWhatsApp: whatsappSent,
       whatsappError: whatsappError,
@@ -388,10 +403,17 @@ exports.login = async (req, res) => {
 
     Logger.auth('LOGIN_SUCCESS', `User logged in: ${user.id}`);
 
-    // Send login alert
+    // 🔥 Send login alert
     try {
       if (whatsappClient.isReady && user.is_verified) {
-        const time = new Date().toLocaleString('id-ID');
+        const time = new Date().toLocaleString('id-ID', {
+          timeZone: 'Asia/Jakarta',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
         const message = WhatsAppTemplates.loginAlert(user.name, time);
         
         await whatsappClient.sendMessage(user.phone, message);
@@ -446,9 +468,14 @@ exports.me = async (req, res) => {
       });
     }
 
+    const user = users[0];
+
     res.json({
       success: true,
-      user: users[0]
+      user: {
+        ...user,
+        phoneFormatted: PhoneValidator.formatDisplay(user.phone)
+      }
     });
 
   } catch (error) {
