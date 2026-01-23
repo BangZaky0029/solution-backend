@@ -1,5 +1,5 @@
 // =========================================
-// FILE: utils/whatsappClient.js - COMPLETE FIX
+// FILE: utils/whatsappClient.js - CHROME CRASH FIX
 // =========================================
 
 const { Client, LocalAuth } = require('whatsapp-web.js');
@@ -7,13 +7,16 @@ const qrcode = require('qrcode');
 const Logger = require('./logger');
 const fs = require('fs');
 const path = require('path');
+const { exec } = require('child_process');
+const util = require('util');
 
+const execPromise = util.promisify(exec);
 const SESSION_PATH = path.join(__dirname, '../.wwebjs_auth/session-gateway-solution');
 
 class WhatsAppClient {
   constructor() {
     this.client = null;
-    this.io = null; // ✅ NEVER reset this to null
+    this.io = null;
     this.isReady = false;
     this.qrCode = null;
     this.currentStatus = 'disconnected';
@@ -23,20 +26,43 @@ class WhatsAppClient {
     this.isInitializing = false;
   }
 
+  /**
+   * ✅ Kill zombie Chrome processes
+   */
+  async killZombieChrome() {
+    try {
+      Logger.info('WHATSAPP', '🔪 Killing zombie Chrome processes...');
+      await execPromise('pkill -9 chrome 2>/dev/null || true');
+      await execPromise('pkill -9 chromium 2>/dev/null || true');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      Logger.info('WHATSAPP', '✅ Chrome processes killed');
+    } catch (error) {
+      Logger.warn('WHATSAPP', 'Failed to kill Chrome processes', error);
+    }
+  }
+
+  /**
+   * ✅ Clean session folder
+   */
   async checkExistingSession(removeIfExists = false) {
     if (fs.existsSync(SESSION_PATH)) {
-      Logger.warn('WHATSAPP', `Existing session folder found: ${SESSION_PATH}`);
+      Logger.warn('WHATSAPP', `Session folder exists: ${SESSION_PATH}`);
       if (removeIfExists) {
         try {
           fs.rmSync(SESSION_PATH, { recursive: true, force: true });
-          Logger.info('WHATSAPP', 'Old session folder removed.');
+          Logger.info('WHATSAPP', '🗑️ Session folder removed');
+          // Wait for filesystem
+          await new Promise(resolve => setTimeout(resolve, 1000));
         } catch (err) {
-          Logger.warn('WHATSAPP', 'Failed to remove old session folder', err);
+          Logger.warn('WHATSAPP', 'Failed to remove session', err);
         }
       }
     }
   }
 
+  /**
+   * ✅ Initialize WhatsApp Client
+   */
   async initialize(io) {
     if (this.isInitializing) {
       Logger.warn('WHATSAPP', 'Already initializing, skipping...');
@@ -46,24 +72,25 @@ class WhatsAppClient {
     this.isInitializing = true;
 
     try {
+      // ✅ Kill zombie Chrome first
+      await this.killZombieChrome();
+      
       await this.checkExistingSession(false);
 
       if (this.client && this.isReady) {
-        Logger.info('WHATSAPP', 'Client already initialized and ready');
+        Logger.info('WHATSAPP', 'Client already ready');
         this.isInitializing = false;
         return;
       }
 
-      // ✅ Save Socket.IO instance (CRITICAL!)
+      // ✅ Save Socket.IO
       if (io) {
         this.io = io;
-        Logger.info('WHATSAPP', '✅ Socket.IO instance SAVED');
+        Logger.info('WHATSAPP', '✅ Socket.IO saved');
       }
 
-      // ✅ Validate Socket.IO
       if (!this.io) {
-        Logger.error('WHATSAPP', '❌ Socket.IO instance is NULL!');
-        throw new Error('Socket.IO instance required for initialization');
+        throw new Error('Socket.IO instance required');
       }
 
       Logger.info('WHATSAPP', '📱 Creating WhatsApp client...');
@@ -82,26 +109,34 @@ class WhatsAppClient {
             '--disable-dev-shm-usage',
             '--disable-gpu',
             '--no-zygote',
-            '--single-process'
-          ]
+            '--single-process',
+            '--disable-software-rasterizer',
+            '--disable-extensions',
+            '--disable-background-networking'
+          ],
+          timeout: 60000, // ✅ Increase timeout
+          protocolTimeout: 60000
         }
       });
 
       this.setupEventHandlers();
 
-      Logger.info('WHATSAPP', '🚀 Initializing WhatsApp client...');
+      Logger.info('WHATSAPP', '🚀 Initializing client...');
       await this.client.initialize();
 
-      Logger.info('WHATSAPP', '✅ Client initialized successfully');
+      Logger.info('WHATSAPP', '✅ Client initialized');
 
     } catch (error) {
-      Logger.error('WHATSAPP', `Initialization error (retry: ${this.retryCount})`, error);
+      Logger.error('WHATSAPP', `Init error (retry: ${this.retryCount})`, error);
       this.handleInitError(error);
     } finally {
       this.isInitializing = false;
     }
   }
 
+  /**
+   * ✅ Setup event handlers
+   */
   setupEventHandlers() {
     this.client.on('qr', async (qr) => {
       try {
@@ -121,7 +156,7 @@ class WhatsAppClient {
       this.retryCount = 0;
       const info = this.getInfo();
       this.broadcastStatus({ status: 'ready', message: 'Connected', info });
-      Logger.info('WHATSAPP', '✅ Client is ready', { phone: info?.wid?.user || 'unknown' });
+      Logger.info('WHATSAPP', '✅ Client ready', { phone: info?.wid?.user || 'unknown' });
     });
 
     this.client.on('authenticated', () => {
@@ -144,8 +179,11 @@ class WhatsAppClient {
       this.currentStatus = 'disconnected';
       Logger.warn('WHATSAPP', `Disconnected: ${reason}`);
       this.broadcastStatus({ status: 'disconnected', message: 'Disconnected', reason });
+      
       setTimeout(async () => {
-        if (!this.isRestarting) await this.restart();
+        if (!this.isRestarting) {
+          await this.restart();
+        }
       }, 5000);
     });
 
@@ -154,13 +192,16 @@ class WhatsAppClient {
     });
 
     this.client.on('message', (msg) => {
-      Logger.info('WHATSAPP', `📨 Message: ${msg.from} - ${msg.body.substring(0, 50)}`);
+      Logger.info('WHATSAPP', `📨 Message: ${msg.from}`);
     });
   }
 
+  /**
+   * ✅ Broadcast status
+   */
   broadcastStatus(data) {
     if (!this.io) {
-      Logger.warn('WHATSAPP', `⚠️ Cannot broadcast "${data.status}" - Socket.IO NULL`);
+      Logger.warn('WHATSAPP', `⚠️ Cannot broadcast "${data.status}"`);
       return;
     }
 
@@ -171,16 +212,22 @@ class WhatsAppClient {
     Logger.info('WHATSAPP', `📡 Broadcast: ${data.status}`);
   }
 
+  /**
+   * ✅ Get status
+   */
   getStatus() {
     return {
       status: this.currentStatus,
       isReady: this.isReady,
       qrCode: this.qrCode,
       info: this.isReady && this.client ? this.client.info : null,
-      hasSocketIO: !!this.io // ✅ Debug info
+      hasSocketIO: !!this.io
     };
   }
 
+  /**
+   * ✅ Get info
+   */
   getInfo() {
     if (!this.client || !this.isReady) return null;
     try {
@@ -191,18 +238,25 @@ class WhatsAppClient {
     }
   }
 
+  /**
+   * ✅ Handle init errors
+   */
   handleInitError(error) {
     this.retryCount++;
 
-    if (error.message.includes('browser is already running')) {
-      Logger.warn('WHATSAPP', 'Browser running. Waiting 10s...');
-      setTimeout(() => this.restart(), 10000);
+    // ✅ Check for Chrome crash
+    if (error.message.includes('Target closed') || 
+        error.message.includes('Protocol error')) {
+      Logger.warn('WHATSAPP', '💥 Chrome crashed. Cleaning up and restarting...');
+      setTimeout(async () => {
+        await this.restart(true); // Remove session
+      }, 3000);
       return;
     }
 
-    if (error.message.includes('Target closed')) {
-      Logger.warn('WHATSAPP', 'Browser closed. Restarting...');
-      this.restart();
+    if (error.message.includes('browser is already running')) {
+      Logger.warn('WHATSAPP', 'Browser running. Waiting 10s...');
+      setTimeout(() => this.restart(true), 10000);
       return;
     }
 
@@ -217,57 +271,69 @@ class WhatsAppClient {
     }
   }
 
+  /**
+   * ✅ Destroy client safely
+   */
   async destroyClient() {
     if (this.client) {
       try {
         this.client.removeAllListeners();
-        await this.client.destroy();
+        
+        // ✅ Try to destroy gracefully
+        try {
+          await this.client.destroy();
+        } catch (err) {
+          Logger.warn('WHATSAPP', 'Graceful destroy failed, forcing...', err);
+        }
+        
         Logger.info('WHATSAPP', '🗑️ Client destroyed');
       } catch (err) {
-        Logger.warn('WHATSAPP', 'Destroy failed gracefully', err);
+        Logger.warn('WHATSAPP', 'Destroy error', err);
       } finally {
         this.client = null;
         this.isReady = false;
         this.qrCode = null;
         this.currentStatus = 'disconnected';
-        // ✅✅✅ CRITICAL: DO NOT RESET this.io HERE!
-        // this.io MUST BE PRESERVED
+        // ✅ DO NOT reset this.io
       }
     }
   }
 
+  /**
+   * ✅ Restart with cleanup
+   */
   async restart(removeSession = false) {
     if (this.isRestarting) {
-      Logger.warn('WHATSAPP', 'Already restarting, skipping');
+      Logger.warn('WHATSAPP', 'Already restarting');
       return { success: false, message: 'Already restarting' };
     }
 
     this.isRestarting = true;
     Logger.info('WHATSAPP', '🔄 Restarting...', { 
       removeSession, 
-      hasSocketIO: !!this.io // ✅ Debug
+      hasSocketIO: !!this.io 
     });
 
     this.retryCount = 0;
 
-    if (removeSession && fs.existsSync(SESSION_PATH)) {
-      try {
-        fs.rmSync(SESSION_PATH, { recursive: true, force: true });
-        Logger.info('WHATSAPP', '🗑️ Session removed');
-      } catch (err) {
-        Logger.warn('WHATSAPP', 'Session removal failed', err);
-      }
+    // ✅ Kill zombie Chrome
+    await this.killZombieChrome();
+
+    // ✅ Remove session if requested
+    if (removeSession) {
+      await this.checkExistingSession(true);
     }
 
+    // ✅ Destroy client
     await this.destroyClient();
 
     this.currentStatus = 'restarting';
     this.broadcastStatus({ status: 'restarting', message: 'Restarting...' });
 
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    // ✅ Wait before reinitializing
+    await new Promise(resolve => setTimeout(resolve, 5000));
 
     try {
-      // ✅ Don't pass io - use preserved this.io
       await this.initialize();
       this.isRestarting = false;
       return { success: true, message: 'Restart initiated' };
@@ -278,6 +344,9 @@ class WhatsAppClient {
     }
   }
 
+  /**
+   * ✅ Disconnect
+   */
   async disconnect() {
     Logger.info('WHATSAPP', 'Disconnecting...');
     try {
@@ -285,10 +354,14 @@ class WhatsAppClient {
         await this.client.logout();
         await this.destroyClient();
       }
+      
+      await this.killZombieChrome();
+      
       if (fs.existsSync(SESSION_PATH)) {
         fs.rmSync(SESSION_PATH, { recursive: true, force: true });
         Logger.info('WHATSAPP', 'Session removed');
       }
+      
       this.currentStatus = 'disconnected';
       this.broadcastStatus({ status: 'disconnected', message: 'Disconnected' });
       return { success: true, message: 'Disconnected' };
@@ -298,6 +371,9 @@ class WhatsAppClient {
     }
   }
 
+  /**
+   * Format phone number
+   */
   formatPhoneNumber(phoneNumber) {
     let cleaned = phoneNumber.replace(/\D/g, '');
     if (cleaned.startsWith('0')) cleaned = '62' + cleaned.substring(1);
@@ -305,6 +381,9 @@ class WhatsAppClient {
     return cleaned + '@c.us';
   }
 
+  /**
+   * Send message
+   */
   async sendMessage(phoneNumber, message, attempt = 0) {
     if (!this.isReady) throw new Error('WhatsApp not ready');
     const formattedNumber = this.formatPhoneNumber(phoneNumber);
@@ -312,7 +391,12 @@ class WhatsAppClient {
       await new Promise(r => setTimeout(r, 1000));
       const sent = await this.client.sendMessage(formattedNumber, message);
       Logger.info('WHATSAPP', `✅ Sent to ${phoneNumber}`, { id: sent.id._serialized });
-      return { success: true, messageId: sent.id._serialized, timestamp: sent.timestamp, to: formattedNumber };
+      return { 
+        success: true, 
+        messageId: sent.id._serialized, 
+        timestamp: sent.timestamp, 
+        to: formattedNumber 
+      };
     } catch (err) {
       Logger.error('WHATSAPP', `Send failed: ${phoneNumber}`, err);
       if ((err.message.includes('markedUnread') || err.message.includes('detached')) && attempt < 2) {
@@ -324,12 +408,19 @@ class WhatsAppClient {
     }
   }
 
+  /**
+   * Validate phone number
+   */
   async isRegisteredUser(phoneNumber) {
     if (!this.isReady) throw new Error('WhatsApp not ready');
     try {
       const formatted = this.formatPhoneNumber(phoneNumber);
       const isReg = await this.client.isRegisteredUser(formatted);
-      return { isValid: isReg, formattedNumber: formatted.replace('@c.us', ''), message: isReg ? 'Registered' : 'Not registered' };
+      return { 
+        isValid: isReg, 
+        formattedNumber: formatted.replace('@c.us', ''), 
+        message: isReg ? 'Registered' : 'Not registered' 
+      };
     } catch (err) {
       Logger.error('WHATSAPP', `Validation failed: ${phoneNumber}`, err);
       throw new Error(err.message || 'Validation failed');
