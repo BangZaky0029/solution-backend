@@ -103,7 +103,7 @@ class WhatsAppClient {
         }),
         puppeteer: {
           headless: 'new',
-          executablePath: '/usr/bin/chromium-browser', // ✅ CHROMIUM PATH
+          executablePath: '/usr/bin/chromium', // ✅ CHROMIUM PATH
           args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
