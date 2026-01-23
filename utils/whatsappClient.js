@@ -11,7 +11,11 @@ const { exec } = require('child_process');
 const util = require('util');
 
 const execPromise = util.promisify(exec);
-const SESSION_PATH = path.join(__dirname, '../.wwebjs_auth/session-gateway-solution');
+const SESSION_PATH = path.join(
+  '/var/www/solution-backend/.wwebjs_auth',
+  'session-gateway-solution'
+);
+
 
 class WhatsAppClient {
   constructor() {
@@ -74,8 +78,13 @@ class WhatsAppClient {
     try {
       // Kill zombies first
       await this.killZombieBrowsers();
+      if (this.client) {
+        Logger.warn('WHATSAPP', 'Existing client detected, destroying before init');
+        await this.destroyClient();
+      }
+
       
-      await this.checkExistingSession(false);
+      await this.checkExistingSession(this.retryCount >= 2);
 
       if (this.client && this.isReady) {
         Logger.info('WHATSAPP', 'Client already ready');
@@ -97,10 +106,12 @@ class WhatsAppClient {
 
       // ✅ CHROMIUM CONFIG
       this.client = new Client({
+        
         authStrategy: new LocalAuth({
           clientId: 'gateway-solution',
           dataPath: '/var/www/solution-backend/.wwebjs_auth'
         }),
+        
         puppeteer: {
           headless: 'new',
           executablePath: '/usr/bin/chromium', // ✅ CHROMIUM PATH
@@ -147,19 +158,21 @@ class WhatsAppClient {
    */
   setupEventHandlers() {
     this.client.on('qr', async (qr) => {
-      try {
-        this.currentStatus = 'qr';
-        this.qrCode = await qrcode.toDataURL(qr);
-        Logger.info('WHATSAPP', '📱 QR Code generated');
-        this.broadcastStatus({ 
-          status: 'qr', 
-          qr: this.qrCode, 
-          message: 'Scan QR code with WhatsApp mobile app' 
-        });
-      } catch (error) {
-        Logger.error('WHATSAPP', 'QR generation error', error);
+      if (this.isReady) {
+        Logger.warn('WHATSAPP', '⚠️ QR ignored (client already ready)');
+        return;
       }
+
+      this.currentStatus = 'qr';
+      this.qrCode = await qrcode.toDataURL(qr);
+
+      this.broadcastStatus({
+        status: 'qr',
+        qr: this.qrCode,
+        message: 'Scan QR code with WhatsApp mobile app'
+      });
     });
+
 
     this.client.on('loading_screen', (percent, message) => {
       Logger.info('WHATSAPP', `Loading: ${percent}% - ${message}`);
@@ -185,13 +198,18 @@ class WhatsAppClient {
     });
 
     this.client.on('authenticated', () => {
+      if (this.isReady) {
+        Logger.info('WHATSAPP', 'Authenticated event ignored (already ready)');
+        return;
+      }
+
       this.currentStatus = 'authenticated';
       this.broadcastStatus({ 
         status: 'authenticated', 
         message: 'Authentication successful' 
       });
-      Logger.info('WHATSAPP', '🔐 Authenticated');
     });
+
 
     this.client.on('auth_failure', async (error) => {
       this.isReady = false;
@@ -326,7 +344,7 @@ class WhatsAppClient {
           Logger.info('WHATSAPP', 'Removing session on retry 3...');
           await this.checkExistingSession(true);
         }
-        await this.initialize();
+        await this.initialize(this.io);
       }, delay);
     } else {
       this.currentStatus = 'failed';
@@ -381,7 +399,7 @@ class WhatsAppClient {
       hasSocketIO: !!this.io 
     });
 
-    this.retryCount = 0;
+    this.retryCount++;
 
     // Kill all browsers
     await this.killZombieBrowsers();
@@ -404,7 +422,7 @@ class WhatsAppClient {
     await new Promise(resolve => setTimeout(resolve, 5000));
 
     try {
-      await this.initialize();
+      await this.initialize(this.io);
       this.isRestarting = false;
       return { 
         success: true, 
