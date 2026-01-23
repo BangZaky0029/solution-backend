@@ -104,18 +104,8 @@ class WhatsAppClient {
 
     this.client = new Client({
       authStrategy: new LocalAuth({ clientId: 'main-session' }),
-      puppeteer: {
-        headless: true,
-        executablePath: process.env.CHROME_PATH,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-        ],
-      },
+      puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] },
     });
-
-
 
     // ===== QR =====
     this.client.on('qr', async (qr) => {
