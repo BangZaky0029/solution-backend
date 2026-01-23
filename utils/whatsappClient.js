@@ -105,14 +105,20 @@ class WhatsAppClient {
     this.client = new Client({
       authStrategy: new LocalAuth({ clientId: 'main-session' }),
       puppeteer: {
-        headless: true,
+        headless: 'new',
         executablePath: process.env.CHROME_PATH,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--single-process',
         ],
       },
+
+    });
+    this.client.on('authenticated', () => {
+      Logger.info('WHATSAPP', 'Authenticated successfully');
     });
 
 
