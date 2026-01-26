@@ -16,7 +16,7 @@ const paymentRoutes = require('./routes/payment');
 const adminRoutes = require('./routes/admin');
 const featureRoutes = require('./routes/feature');
 const linkRoutes = require('./routes/link');
-const whatsappRoutes = require('./routes/whatsapp'); // <-- WhatsApp routes
+// const whatsappRoutes = require('./routes/whatsapp'); // <-- WhatsApp routes
 const passwordRoutes = require('./routes/password');
 const packageRoutes = require('./routes/package');
 const userRoutes = require('./routes/user');
@@ -49,7 +49,7 @@ app.use('/api/link', linkRoutes);
 app.use('/api/packages', packageRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/stats', statsRoutes);
-app.use('/api/whatsapp', whatsappRoutes); // <-- WhatsApp route
+// app.use('/api/whatsapp', whatsappRoutes); // <-- WhatsApp route
 app.use('/health', healthRoutes);
 
 // ================================

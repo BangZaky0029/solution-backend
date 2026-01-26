@@ -1,5 +1,5 @@
 // =========================================
-// FILE: routes/auth.js (UPDATED)
+// FILE: C:\codingVibes\nuansasolution\.mainweb\payments\solution-backend\routes\auth.js
 // =========================================
 
 const express = require('express');

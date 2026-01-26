@@ -1,7 +1,5 @@
-// =========================================
-// FILE: utils/otpValidator.js - NEW
-// Strict OTP Validation
-// =========================================
+// C:\codingVibes\nuansasolution\.mainweb\payments\solution-backend\utils\otpValidator.js
+// OTP Validator dengan durasi 30 detik
 
 const db = require('../config/db');
 const Logger = require('./logger');
@@ -15,7 +13,7 @@ const OTPValidator = {
   },
 
   /**
-   * Create OTP with stricter rules
+   * Create OTP dengan durasi 30 DETIK
    */
   createOTP: async (userId, type = 'verify') => {
     try {
@@ -26,7 +24,9 @@ const OTPValidator = {
       );
 
       const otp = OTPValidator.generateOTP();
-      const expiredAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+      
+      // 🔥 30 DETIK EXPIRY (bukan 5 menit)
+      const expiredAt = new Date(Date.now() + 30 * 1000); // 30 seconds
 
       await db.query(
         `INSERT INTO otp_verifications (user_id, otp_code, expired_at, type, is_used)
@@ -34,7 +34,7 @@ const OTPValidator = {
         [userId, otp, expiredAt, type]
       );
 
-      Logger.auth('OTP_CREATED', `OTP created for user ${userId}, type: ${type}`);
+      Logger.auth('OTP_CREATED', `OTP created for user ${userId}, type: ${type}, expires in 30s`);
 
       return { otp, expiredAt };
     } catch (error) {
@@ -44,7 +44,7 @@ const OTPValidator = {
   },
 
   /**
-   * Verify OTP with strict validation
+   * Verify OTP dengan strict validation
    */
   verifyOTP: async (userId, otp, type = 'verify') => {
     try {
@@ -73,7 +73,7 @@ const OTPValidator = {
       // Check if expired
       if (new Date(otpRecord.expired_at) < new Date()) {
         Logger.auth('OTP_EXPIRED', `OTP expired for user ${userId}`);
-        return { valid: false, message: 'OTP sudah kadaluarsa' };
+        return { valid: false, message: 'OTP sudah kadaluarsa (30 detik)' };
       }
 
       // Mark as used

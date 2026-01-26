@@ -1,16 +1,14 @@
-// controllers/authController.js
+// C:\codingVibes\nuansasolution\.mainweb\payments\solution-backend\controllers\authController.js
 const db = require('../config/db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuid } = require('uuid');
 const Logger = require('../utils/logger');
 const OTPValidator = require('../utils/otpValidator');
-const whatsappClient = require('../utils/whatsappClient');
-const { WhatsAppTemplates } = require('../utils/whatsappTemplates');
 const PhoneValidator = require('../utils/phoneValidator');
 
 /**
- * REGISTER
+ * REGISTER - OTP ditampilkan di frontend (NO WHATSAPP)
  * POST /api/auth/register
  */
 exports.register = async (req, res) => {
@@ -68,25 +66,10 @@ exports.register = async (req, res) => {
       });
     }
 
-    // 🔥 CHECK: WhatsApp number is valid and registered on WhatsApp
-    try {
-      const isRegistered = await whatsappClient.checkNumberRegistered(normalizedPhone);
-      if (!isRegistered) {
-        Logger.auth('REGISTER_FAILED', 'WhatsApp number not registered', { phone: normalizedPhone });
-        return res.status(400).json({
-          success: false,
-          message: 'Nomor WhatsApp tidak terdaftar di WhatsApp. Pastikan nomor Anda aktif.'
-        });
-      }
-    } catch (error) {
-      Logger.error('WHATSAPP', 'Failed to check WhatsApp registration', error);
-      // Continue if check fails - don't block registration
-    }
-
     // Hash password
     const hashedPassword = bcrypt.hashSync(password, 10);
 
-    // Insert user with normalized phone
+    // Insert user
     const [result] = await db.query(
       'INSERT INTO users (name, email, phone, password) VALUES (?, ?, ?, ?)',
       [name, email, normalizedPhone, hashedPassword]
@@ -105,28 +88,10 @@ exports.register = async (req, res) => {
       });
     }
 
-    // Generate OTP
-    const { otp } = await OTPValidator.createOTP(userId, 'verify');
+    // 🔥 Generate OTP (30 detik expiry)
+    const { otp, expiredAt } = await OTPValidator.createOTP(userId, 'verify');
 
-    // 🔥 Send OTP via WhatsApp
-    let whatsappSent = false;
-    let whatsappError = null;
-
-    try {
-      if (whatsappClient.isReady) {
-        const message = WhatsAppTemplates.registrationOTP(name, otp);
-        await whatsappClient.sendMessage(normalizedPhone, message);
-        whatsappSent = true;
-
-        Logger.whatsapp('REGISTRATION_OTP', `OTP sent to ${normalizedPhone}`, { userId, otp });
-      } else {
-        whatsappError = 'WhatsApp bot is not connected';
-        Logger.whatsapp('OTP_FAILED', 'WhatsApp not ready', { phone: normalizedPhone });
-      }
-    } catch (error) {
-      whatsappError = error.message;
-      Logger.error('WHATSAPP', 'Failed to send registration OTP', error);
-    }
+    Logger.auth('OTP_GENERATED', `OTP for user ${userId}: ${otp}`, { expiredAt });
 
     // Create trial package
     const [trialPackages] = await db.query(
@@ -146,23 +111,36 @@ exports.register = async (req, res) => {
       Logger.info('TRIAL', `Trial package activated for user ${userId}`, { packageName: trial.name });
     }
 
-    // Response
-    res.json({
+    // 🔥🔥🔥 CRITICAL: Response dengan OTP HARUS di-return ke frontend
+    const responseData = {
       success: true,
-      message: whatsappSent
-        ? 'Registrasi berhasil! Kode OTP telah dikirim ke WhatsApp Anda.'
-        : `Registrasi berhasil! Kode OTP: ${otp}. (WhatsApp error: ${whatsappError})`,
-      otpSent: whatsappSent,
-      viaWhatsApp: whatsappSent,
-      whatsappError: whatsappError,
-      phone: PhoneValidator.formatDisplay(normalizedPhone),
-      // Only in development
-      ...(process.env.NODE_ENV === 'development' && { otp })
-    });
+      message: 'Registrasi berhasil! Silakan verifikasi OTP.',
+      otp: otp,
+      otpExpiry: expiredAt,
+      otpDuration: 30,
+      user: {
+        email,
+        name,
+        phone: PhoneValidator.formatDisplay(normalizedPhone)
+      },
+      trialPackage: trialPackages.length > 0 ? {
+        packageName: trialPackages[0].name,
+        durationDays: trialPackages[0].duration_days
+      } : null
+    };
+
+
+    // 🔍 DEBUG LOG - Pastikan OTP di-return
+    console.log('========================================');
+    console.log('📤 RESPONSE TO FRONTEND:');
+    console.log(JSON.stringify(responseData, null, 2));
+    console.log('========================================');
+
+    return res.status(200).json(responseData);
 
   } catch (error) {
     Logger.error('AUTH', 'Register error', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Terjadi kesalahan server'
     });
@@ -170,7 +148,7 @@ exports.register = async (req, res) => {
 };
 
 /**
- * VERIFY OTP
+ * VERIFY OTP - No WhatsApp
  * POST /api/auth/verify-otp
  */
 exports.verifyOtp = async (req, res) => {
@@ -221,38 +199,14 @@ exports.verifyOtp = async (req, res) => {
 
     Logger.auth('VERIFY_OTP_SUCCESS', `User verified: ${user.id}`);
 
-    // 🔥 Send welcome message
-    try {
-      if (whatsappClient.isReady) {
-        // Get trial package name
-        const [tokens] = await db.query(
-          `SELECT p.name 
-           FROM user_tokens ut
-           JOIN packages p ON p.id = ut.package_id
-           WHERE ut.user_id = ? AND ut.is_trial = 1 AND ut.is_active = 1
-           LIMIT 1`,
-          [user.id]
-        );
-
-        const packageName = tokens.length > 0 ? tokens[0].name : 'Trial 3 Hari';
-        const message = WhatsAppTemplates.welcome(user.name, packageName);
-        
-        await whatsappClient.sendMessage(user.phone, message);
-
-        Logger.whatsapp('WELCOME', `Welcome message sent to ${user.phone}`, { userId: user.id });
-      }
-    } catch (error) {
-      Logger.error('WHATSAPP', 'Failed to send welcome message', error);
-    }
-
-    res.json({
+    return res.status(200).json({
       success: true,
-      message: 'OTP berhasil diverifikasi'
+      message: 'OTP berhasil diverifikasi! Silakan login.'
     });
 
   } catch (error) {
     Logger.error('AUTH', 'Verify OTP error', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Terjadi kesalahan server'
     });
@@ -260,7 +214,7 @@ exports.verifyOtp = async (req, res) => {
 };
 
 /**
- * RESEND OTP
+ * RESEND OTP - No WhatsApp
  * POST /api/auth/resend-otp
  */
 exports.resendOtp = async (req, res) => {
@@ -308,42 +262,25 @@ exports.resendOtp = async (req, res) => {
     }
 
     // Generate new OTP
-    const { otp } = await OTPValidator.createOTP(user.id, 'verify');
+    const { otp, expiredAt } = await OTPValidator.createOTP(user.id, 'verify');
 
-    // 🔥 Send via WhatsApp
-    let whatsappSent = false;
-    let whatsappError = null;
+    Logger.auth('RESEND_OTP_SUCCESS', `New OTP for user ${user.id}: ${otp}`);
 
-    try {
-      if (whatsappClient.isReady) {
-        const message = WhatsAppTemplates.registrationOTP(user.name, otp);
-        await whatsappClient.sendMessage(user.phone, message);
-        whatsappSent = true;
-
-        Logger.whatsapp('RESEND_OTP', `OTP resent to ${user.phone}`, { userId: user.id, otp });
-      } else {
-        whatsappError = 'WhatsApp bot is not connected';
-        Logger.whatsapp('RESEND_OTP_FAILED', 'WhatsApp not ready');
-      }
-    } catch (error) {
-      whatsappError = error.message;
-      Logger.error('WHATSAPP', 'Failed to resend OTP', error);
-    }
-
-    res.json({
+    const responseData = {
       success: true,
-      message: whatsappSent
-        ? 'OTP baru telah dikirim ke WhatsApp Anda'
-        : `OTP baru: ${otp}. (WhatsApp error: ${whatsappError})`,
-      otpSent: whatsappSent,
-      viaWhatsApp: whatsappSent,
-      whatsappError: whatsappError,
-      ...(process.env.NODE_ENV === 'development' && { otp })
-    });
+      message: 'OTP baru telah dibuat',
+      otp: otp, // ⭐ Return OTP
+      otpExpiry: expiredAt,
+      otpDuration: 30
+    };
+
+    console.log('📤 RESEND OTP RESPONSE:', responseData);
+
+    return res.status(200).json(responseData);
 
   } catch (error) {
     Logger.error('AUTH', 'Resend OTP error', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Terjadi kesalahan server'
     });
@@ -351,7 +288,7 @@ exports.resendOtp = async (req, res) => {
 };
 
 /**
- * LOGIN
+ * LOGIN - No WhatsApp
  * POST /api/auth/login
  */
 exports.login = async (req, res) => {
@@ -403,35 +340,21 @@ exports.login = async (req, res) => {
 
     Logger.auth('LOGIN_SUCCESS', `User logged in: ${user.id}`);
 
-    // 🔥 Send login alert
-    try {
-      if (whatsappClient.isReady && user.is_verified) {
-        const time = new Date().toLocaleString('id-ID', {
-          timeZone: 'Asia/Jakarta',
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        });
-        const message = WhatsAppTemplates.loginAlert(user.name, time);
-        
-        await whatsappClient.sendMessage(user.phone, message);
-
-        Logger.whatsapp('LOGIN_ALERT', `Alert sent to ${user.phone}`, { userId: user.id });
-      }
-    } catch (error) {
-      Logger.error('WHATSAPP', 'Failed to send login alert', error);
-    }
-
-    res.json({
+    return res.status(200).json({
       success: true,
-      token
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: PhoneValidator.formatDisplay(user.phone),
+        isVerified: user.is_verified
+      }
     });
 
   } catch (error) {
     Logger.error('AUTH', 'Login error', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Terjadi kesalahan server'
     });
@@ -470,7 +393,7 @@ exports.me = async (req, res) => {
 
     const user = users[0];
 
-    res.json({
+    return res.status(200).json({
       success: true,
       user: {
         ...user,
@@ -480,7 +403,7 @@ exports.me = async (req, res) => {
 
   } catch (error) {
     Logger.error('AUTH', 'Get user error', error);
-    res.status(401).json({
+    return res.status(401).json({
       success: false,
       message: 'Invalid token'
     });
