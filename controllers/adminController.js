@@ -54,7 +54,8 @@ exports.login = async (req, res) => {
 
     const token = jwt.sign(
       { id: admin.id, role: 'admin' },
-      process.env.JWT_SECRET
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
     );
 
     Logger.auth('ADMIN_LOGIN_SUCCESS', `Admin logged in: ${admin.id}`);
