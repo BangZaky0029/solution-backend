@@ -27,6 +27,10 @@ const healthRoutes = require('./routes/health');
 
 const app = express();
 
+// Enable if you're behind a reverse proxy (Heroku, Bluemix, AWS ELB, Nginx, etc)
+// see https://expressjs.com/en/guide/behind-proxies.html
+app.set('trust proxy', 1);
+
 // ================================
 // SECURITY MIDDLEWARE
 // ================================
@@ -46,9 +50,12 @@ app.use(helmet({
 // CORS - Restrict origins in production
 const allowedOrigins = process.env.NODE_ENV === 'production'
   ? [
-    process.env.ADMIN_URL || 'https://admin.yourdomain.com',
-    process.env.CLIENT_URL || 'https://yourdomain.com'
-  ]
+    'https://payment.nuansasolution.id',
+    'https://admin-controller.nuansasolution.id',
+    'https://api.nuansasolution.id',
+    process.env.ADMIN_URL,
+    process.env.CLIENT_URL
+  ].filter(Boolean) // Filter out undefined if env vars are missing
   : ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:5173'];
 
 app.use(cors({
