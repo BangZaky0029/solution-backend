@@ -34,7 +34,13 @@ const app = express();
 // Helmet - Security headers
 // Helmet - Security headers (configured to allow images across origins)
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      "frame-ancestors": ["'self'", "http://localhost:5173", "http://localhost:3000", "*"],
+    },
+  },
 }));
 
 // CORS - Restrict origins in production
@@ -99,7 +105,7 @@ app.use(requestLogger);
 // ROUTES
 // ================================
 app.use('/api/auth', authLimiter, authRoutes);
-app.use('/api/admin', authLimiter, adminRoutes);
+app.use('/api/admin', globalLimiter, adminRoutes);
 app.use('/api/password', authLimiter, passwordRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/feature', featureRoutes);
