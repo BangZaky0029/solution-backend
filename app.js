@@ -32,7 +32,10 @@ const app = express();
 // ================================
 
 // Helmet - Security headers
-app.use(helmet());
+// Helmet - Security headers (configured to allow images across origins)
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
 
 // CORS - Restrict origins in production
 const allowedOrigins = process.env.NODE_ENV === 'production'

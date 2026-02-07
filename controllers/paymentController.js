@@ -1,5 +1,5 @@
 // =========================================
-// FILE: controllers/paymentController.js - UPDATED
+// FILE: controllers/paymentController.js - OPIMIZED (ACID Transactions)
 // Enhanced with WhatsApp Notifications & Logging
 // =========================================
 
@@ -12,22 +12,15 @@ const Logger = require('../utils/logger');
 const whatsappClient = require('../utils/whatsappClient');
 const { WhatsAppTemplates, formatCurrency, formatDate } = require('../utils/whatsappTemplates');
 
-// Multer setup
-const storage = multer.diskStorage({
-  destination: 'uploads/',
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const name = crypto.randomBytes(16).toString('hex') + ext;
-    cb(null, name);
-  }
-});
-const upload = multer({ storage });
+const StorageService = require('../services/storageService');
+const upload = multer({ storage: StorageService.getStorageEngine() });
 
 /**
- * CREATE PAYMENT
+ * CREATE PAYMENT (Transactional)
  * POST /api/payment/create
  */
 exports.create = async (req, res) => {
+  let connection;
   try {
     const { package_id, method, forceUpgrade } = req.body;
     const userId = req.user.id;
@@ -42,19 +35,24 @@ exports.create = async (req, res) => {
 
     Logger.payment('CREATE_ATTEMPT', `User: ${userId}, Package: ${package_id}, Method: ${method}`);
 
+    // Get connection and start transaction
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
     // Check active tokens
-    const [activeTokens] = await db.query(
+    const [activeTokens] = await connection.query(
       `SELECT ut.id AS token_id, ut.package_id, pk.name AS package_name
        FROM user_tokens ut
        JOIN packages pk ON pk.id = ut.package_id
-       WHERE ut.user_id = ? AND ut.is_active = 1`,
+       WHERE ut.user_id = ? AND ut.is_active = 1 FOR UPDATE`, // Lock rows
       [userId]
     );
 
     // Has active package and not confirmed upgrade
     if (activeTokens.length > 0 && !forceUpgrade) {
+      await connection.commit(); // Commit read-only logic
       Logger.payment('CREATE_WARNING', 'User has active package', { userId, currentPackage: activeTokens[0].package_name });
-      
+
       return res.json({
         success: false,
         hasActive: true,
@@ -69,16 +67,15 @@ exports.create = async (req, res) => {
 
     // If confirmed upgrade, deactivate old packages
     if (activeTokens.length > 0 && forceUpgrade) {
-      await db.query(
+      await connection.query(
         'UPDATE user_tokens SET is_active=0 WHERE user_id=? AND is_active=1',
         [userId]
       );
-
       Logger.payment('DEACTIVATE_OLD', `Old packages deactivated for user ${userId}`);
     }
 
     // Create payment
-    const [result] = await db.query(
+    const [result] = await connection.query(
       `INSERT INTO payments (user_id, package_id, payment_method, amount, status)
        SELECT ?, id, ?, price, 'pending'
        FROM packages WHERE id=?`,
@@ -86,6 +83,7 @@ exports.create = async (req, res) => {
     );
 
     if (result.affectedRows === 0) {
+      await connection.rollback();
       Logger.payment('CREATE_FAILED', 'Invalid package', { package_id });
       return res.status(400).json({
         success: false,
@@ -95,6 +93,7 @@ exports.create = async (req, res) => {
 
     const paymentId = result.insertId;
 
+    await connection.commit();
     Logger.payment('CREATE_SUCCESS', `Payment created: ${paymentId}`, { userId, package_id });
 
     res.json({
@@ -104,21 +103,26 @@ exports.create = async (req, res) => {
     });
 
   } catch (error) {
+    if (connection) await connection.rollback();
     Logger.error('PAYMENT', 'Create payment error', error);
     res.status(500).json({
       success: false,
-      message: 'Terjadi kesalahan server'
+      message: 'Terjadi kesalahan server',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
+  } finally {
+    if (connection) connection.release();
   }
 };
 
 /**
- * CONFIRM PAYMENT
+ * CONFIRM PAYMENT (Transactional)
  * POST /api/payment/confirm
  */
 exports.confirm = [
   upload.single('proof'),
   async (req, res) => {
+    let connection;
     try {
       const userId = req.user.id;
       const { payment_id, email, phone } = req.body;
@@ -141,16 +145,20 @@ exports.confirm = [
 
       Logger.payment('CONFIRM_ATTEMPT', `User: ${userId}, Payment: ${payment_id}`);
 
+      connection = await db.getConnection();
+      await connection.beginTransaction();
+
       // Validate payment
-      const [payments] = await db.query(
+      const [payments] = await connection.query(
         `SELECT p.id, p.package_id, p.amount, pk.name as package_name
          FROM payments p
          JOIN packages pk ON pk.id = p.package_id
-         WHERE p.id=? AND p.user_id=? AND p.status="pending"`,
+         WHERE p.id=? AND p.user_id=? AND p.status="pending" FOR UPDATE`,
         [payment_id, userId]
       );
 
       if (payments.length === 0) {
+        await connection.rollback();
         Logger.payment('CONFIRM_FAILED', 'Payment not found', { payment_id });
         return res.status(404).json({
           success: false,
@@ -161,15 +169,16 @@ exports.confirm = [
       const payment = payments[0];
 
       // Save confirmation
-      await db.query(
+      await connection.query(
         `INSERT INTO payment_confirmations (payment_id, email, phone, proof_image, created_at)
          VALUES (?, ?, ?, ?, NOW())`,
         [payment_id, email, phone, req.file.filename]
       );
 
+      await connection.commit();
       Logger.payment('CONFIRM_SUCCESS', `Payment confirmed: ${payment_id}`, { userId });
 
-      // Send WhatsApp notification
+      // Send WhatsApp notification (Async - Outside Transaction)
       try {
         if (whatsappClient.isReady) {
           const [users] = await db.query(
@@ -186,13 +195,17 @@ exports.confirm = [
               payment_id
             );
 
-            await whatsappClient.sendMessage(user.phone, message);
+            // Fire and forget
+            whatsappClient.sendMessage(user.phone, message).catch(err =>
+              Logger.error('WHATSAPP', 'Failed async send', err)
+            );
 
-            Logger.whatsapp('PAYMENT_RECEIVED', `Notification sent to ${user.phone}`, { userId, payment_id });
+            Logger.whatsapp('PAYMENT_RECEIVED', `Notification queued for ${user.phone}`, { userId, payment_id });
           }
         }
       } catch (error) {
-        Logger.error('WHATSAPP', 'Failed to send payment received notification', error);
+        // Don't fail the request if WhatsApp fails
+        Logger.error('WHATSAPP', 'WhatsApp logic error', error);
       }
 
       res.json({
@@ -201,23 +214,28 @@ exports.confirm = [
       });
 
     } catch (error) {
+      if (connection) await connection.rollback();
       Logger.error('PAYMENT', 'Confirm payment error', error);
       res.status(500).json({
         success: false,
         message: 'Terjadi kesalahan server'
       });
+    } finally {
+      if (connection) connection.release();
     }
   }
 ];
 
 /**
- * CHECK ACTIVE PACKAGE
+ * CHECK ACTIVE PACKAGE (Read-Only)
  * GET /api/payment/check-active-package
  */
 exports.checkActivePackage = async (req, res) => {
   try {
     const userId = req.user.id;
 
+    // Read queries don't necessarily need strict transaction isolation if we accept slightly stale data,
+    // but using pool directly is fine.
     const [rows] = await db.query(
       `SELECT ut.id AS token_id, ut.package_id, pk.name AS package_name,
               ut.activated_at, ut.expired_at
@@ -257,7 +275,7 @@ exports.checkActivePackage = async (req, res) => {
 };
 
 /**
- * GET USER PAYMENTS
+ * GET USER PAYMENTS (Read-Only)
  * GET /api/payment/user/payments
  */
 exports.getUserPayments = async (req, res) => {
@@ -289,7 +307,7 @@ exports.getUserPayments = async (req, res) => {
 };
 
 /**
- * DOWNLOAD INVOICE
+ * DOWNLOAD INVOICE (Read-Only)
  * GET /api/payment/:paymentId/invoice
  */
 exports.getInvoice = async (req, res) => {
@@ -323,8 +341,13 @@ exports.getInvoice = async (req, res) => {
 
     const leftMargin = 80;
 
-    // Header
-    doc.image(path.join(__dirname, '..', 'invoice', 'NS_blank_02.png'), leftMargin, 20, { width: 120 });
+    // Header - Try/Catch image loading to prevent crash
+    try {
+      doc.image(path.join(__dirname, '..', 'invoice', 'NS_blank_02.png'), leftMargin, 20, { width: 120 });
+    } catch (e) {
+      // Ignore image error
+    }
+
     doc.fontSize(22).fillColor('#1f2937').text('Invoice Pembayaran', 0, 30, { align: 'right' });
     doc.moveDown(2);
 
@@ -364,10 +387,11 @@ exports.getInvoice = async (req, res) => {
 };
 
 /**
- * ADMIN ACTIVATE PAYMENT
+ * ADMIN ACTIVATE PAYMENT (Transactional)
  * POST /api/payment/admin/activate
  */
 exports.adminActivatePayment = async (req, res) => {
+  let connection;
   try {
     const { paymentId } = req.body;
 
@@ -381,41 +405,38 @@ exports.adminActivatePayment = async (req, res) => {
 
     Logger.payment('ACTIVATE_ATTEMPT', `Payment: ${paymentId}`);
 
-    // Update payment status
-    const [result] = await db.query(
-      'UPDATE payments SET status="confirmed", updated_at=NOW() WHERE id=? AND status="pending"',
-      [paymentId]
-    );
+    connection = await db.getConnection();
+    await connection.beginTransaction();
 
-    if (result.affectedRows === 0) {
-      Logger.payment('ACTIVATE_FAILED', 'Payment not found or already processed', { paymentId });
-      return res.status(400).json({
-        success: false,
-        message: 'Payment tidak ditemukan atau sudah diproses sebelumnya'
-      });
-    }
-
-    // Get payment details
-    const [payments] = await db.query(
-      `SELECT p.user_id, p.package_id, pk.name as package_name, pk.duration_days
+    // Check payment status with lock
+    const [payments] = await connection.query(
+      `SELECT p.id, p.user_id, p.package_id, p.status, pk.name as package_name, pk.duration_days
        FROM payments p
        JOIN packages pk ON pk.id = p.package_id
-       WHERE p.id=?`,
+       WHERE p.id=? FOR UPDATE`,
       [paymentId]
     );
 
     if (payments.length === 0) {
-      Logger.payment('ACTIVATE_FAILED', 'Payment not found after update', { paymentId });
-      return res.status(500).json({
-        success: false,
-        message: 'Payment not found'
-      });
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'Payment tidak ditemukan' });
     }
 
     const payment = payments[0];
 
+    if (payment.status === 'confirmed') {
+      await connection.rollback();
+      return res.status(400).json({ success: false, message: 'Payment sudah dikonfirmasi sebelumnya' });
+    }
+
+    // Update payment status
+    await connection.query(
+      'UPDATE payments SET status="confirmed", updated_at=NOW() WHERE id=?',
+      [paymentId]
+    );
+
     // Deactivate old tokens
-    await db.query(
+    await connection.query(
       'UPDATE user_tokens SET is_active=0 WHERE user_id=? AND is_active=1',
       [payment.user_id]
     );
@@ -424,19 +445,20 @@ exports.adminActivatePayment = async (req, res) => {
     const expiryDate = new Date();
     expiryDate.setDate(expiryDate.getDate() + payment.duration_days);
 
-    await db.query(
+    await connection.query(
       `INSERT INTO user_tokens
        (user_id, package_id, token, activated_at, expired_at, is_active, is_trial)
        VALUES (?, ?, ?, NOW(), ?, 1, 0)`,
       [payment.user_id, payment.package_id, crypto.randomUUID(), expiryDate]
     );
 
+    await connection.commit();
     Logger.payment('ACTIVATE_SUCCESS', `Package activated: ${paymentId}`, {
       userId: payment.user_id,
       packageId: payment.package_id
     });
 
-    // Send WhatsApp notification
+    // Send WhatsApp notification (Async)
     try {
       if (whatsappClient.isReady) {
         const [users] = await db.query(
@@ -447,7 +469,7 @@ exports.adminActivatePayment = async (req, res) => {
         if (users.length > 0) {
           const user = users[0];
           const expiryDateStr = formatDate(expiryDate);
-          
+
           const message = WhatsAppTemplates.paymentApproved(
             user.name,
             payment.package_name,
@@ -455,16 +477,18 @@ exports.adminActivatePayment = async (req, res) => {
             expiryDateStr
           );
 
-          await whatsappClient.sendMessage(user.phone, message);
+          whatsappClient.sendMessage(user.phone, message).catch(err =>
+            Logger.error('WHATSAPP', 'Failed async send', err)
+          );
 
-          Logger.whatsapp('PAYMENT_APPROVED', `Notification sent to ${user.phone}`, {
+          Logger.whatsapp('PAYMENT_APPROVED', `Notification queued for ${user.phone}`, {
             userId: payment.user_id,
             paymentId
           });
         }
       }
     } catch (error) {
-      Logger.error('WHATSAPP', 'Failed to send payment approved notification', error);
+      Logger.error('WHATSAPP', 'WhatsApp logic error', error);
     }
 
     res.json({
@@ -473,11 +497,14 @@ exports.adminActivatePayment = async (req, res) => {
     });
 
   } catch (error) {
+    if (connection) await connection.rollback();
     Logger.error('PAYMENT', 'Admin activate payment error', error);
     res.status(500).json({
       success: false,
       message: 'Terjadi kesalahan server'
     });
+  } finally {
+    if (connection) connection.release();
   }
 };
 
