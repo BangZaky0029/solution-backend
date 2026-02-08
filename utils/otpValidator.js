@@ -24,9 +24,9 @@ const OTPValidator = {
       );
 
       const otp = OTPValidator.generateOTP();
-      
-      // 🔥 30 DETIK EXPIRY (bukan 5 menit)
-      const expiredAt = new Date(Date.now() + 30 * 1000); // 30 seconds
+
+      // 🔥 90 DETIK EXPIRY (User Request: > 1 menit)
+      const expiredAt = new Date(Date.now() + 90 * 1000); // 90 seconds
 
       await db.query(
         `INSERT INTO otp_verifications (user_id, otp_code, expired_at, type, is_used)
@@ -73,7 +73,7 @@ const OTPValidator = {
       // Check if expired
       if (new Date(otpRecord.expired_at) < new Date()) {
         Logger.auth('OTP_EXPIRED', `OTP expired for user ${userId}`);
-        return { valid: false, message: 'OTP sudah kadaluarsa (30 detik)' };
+        return { valid: false, message: 'OTP sudah kadaluarsa (90 detik)' };
       }
 
       // Mark as used

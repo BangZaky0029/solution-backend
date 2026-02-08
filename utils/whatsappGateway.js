@@ -110,6 +110,8 @@ class WhatsAppGateway {
             message = this._formatOTPResetPassword(userName, otp);
         } else if (type === 'resend_reset_password') {
             message = this._formatOTPResend(userName, otp);
+        } else if (type === 'delete_account') {
+            message = this._formatOTPDeleteAccount(userName, otp);
         } else {
             message = this._formatOTPGeneric(userName, otp);
         }
@@ -196,6 +198,21 @@ _Nuansa Solution_`;
         return `Resend OTP (${otp})
 
 _Nuansa Solution_`;
+    }
+
+    _formatOTPDeleteAccount(userName, otp) {
+        return `🚨 *PERINGATAN: PENGHAPUSAN AKUN*
+
+Halo ${userName},
+
+Anda meminta untuk menghapus akun Anda secara permanen.
+Kode Konfirmasi: *${otp}*
+
+⚠️ *Tindakan ini tidak dapat dibatalkan.*
+Semua data (profil, riwayat transaksi, paket aktif) akan dihapus selamanya.
+
+Jika ini bukan Anda, segera hubungi admin.
+⏱️ Berlaku 5 menit`;
     }
 
     _formatOTPGeneric(userName, otp) {

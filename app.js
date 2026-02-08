@@ -18,6 +18,35 @@ if (process.env.WHATSAPP_ENABLED === 'true') {
   subscriptionCron.initCron();
 }
 
+// 🟢 AUTO MIGRATION (TEMPORARY)
+const db = require('./config/db');
+(async () => {
+  try {
+    await db.query(`ALTER TABLE otp_verifications MODIFY COLUMN type ENUM('verify', 'reset', 'delete_account') DEFAULT 'verify'`);
+
+    // Create deleted_users_history table
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS deleted_users_history (
+        id bigint(20) NOT NULL AUTO_INCREMENT,
+        original_user_id bigint(20) DEFAULT NULL,
+        name varchar(100) DEFAULT NULL,
+        email varchar(100) DEFAULT NULL,
+        phone varchar(20) DEFAULT NULL,
+        reason text,
+        has_used_trial tinyint(1) DEFAULT '0',
+        deleted_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_phone (phone),
+        KEY idx_email (email)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    console.log('✅ Auto-Migration: Database updated successfully');
+  } catch (e) {
+    console.log('ℹ️ Auto-Migration:', e.message);
+  }
+})();
+
 // Routes
 const authRoutes = require('./routes/auth');
 const paymentRoutes = require('./routes/payment');

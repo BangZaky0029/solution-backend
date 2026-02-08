@@ -100,16 +100,28 @@ exports.register = async (req, res) => {
     );
 
     if (trialPackages.length > 0) {
-      const trial = trialPackages[0];
-
-      await db.query(
-        `INSERT INTO user_tokens
-         (user_id, package_id, token, activated_at, expired_at, is_active, is_trial)
-         VALUES (?, ?, ?, NOW(), DATE_ADD(NOW(), INTERVAL ? DAY), 1, 1)`,
-        [userId, trial.id, uuid(), trial.duration_days]
+      // 🔥 ANTI-ABUSE CHECK
+      // Check if user (phone/email) has deleted account AND used trial before
+      const [history] = await db.query(
+        `SELECT id FROM deleted_users_history 
+         WHERE (phone = ? OR email = ?) AND has_used_trial = 1 LIMIT 1`,
+        [normalizedPhone, email]
       );
 
-      Logger.info('TRIAL', `Trial package activated for user ${userId}`, { packageName: trial.name });
+      if (history.length > 0) {
+        Logger.info('TRIAL_SKIPPED', `Trial DENIED for user ${userId} (Abuse Prevention - Previous Account Found)`);
+      } else {
+        const trial = trialPackages[0];
+
+        await db.query(
+          `INSERT INTO user_tokens
+           (user_id, package_id, token, activated_at, expired_at, is_active, is_trial)
+           VALUES (?, ?, ?, NOW(), DATE_ADD(NOW(), INTERVAL ? DAY), 1, 1)`,
+          [userId, trial.id, uuid(), trial.duration_days]
+        );
+
+        Logger.info('TRIAL', `Trial package activated for user ${userId}`, { packageName: trial.name });
+      }
     }
 
     // 🔥 Send OTP via WhatsApp Gateway
@@ -123,6 +135,38 @@ exports.register = async (req, res) => {
       }
     } catch (waError) {
       Logger.error('WHATSAPP', 'Failed to send registration OTP', waError);
+    }
+
+    // Determine trial response data
+    let trialResponse = null;
+    let trialStatus = 'unavailable';
+
+    if (trialPackages.length > 0) {
+      const trial = trialPackages[0];
+      // Re-query/re-check if we actually inserted (based on history check above)
+      // Since we didn't store the result of the check in a variable accessible here easily without refactoring,
+      // let's assume we need to return what happened. 
+
+      // Refactoring slightly to use a flag for trial granted
+      // We need to move the check logic up or use a variable. 
+      // Let's rely on the fact we already checked history.
+
+      // Re-running safe check for response construction:
+      const [historyCheck] = await db.query(
+        `SELECT id FROM deleted_users_history 
+         WHERE (phone = ? OR email = ?) AND has_used_trial = 1 LIMIT 1`,
+        [normalizedPhone, email]
+      );
+
+      if (historyCheck.length > 0) {
+        trialStatus = 'denied'; // Was available but denied due to abuse
+      } else {
+        trialStatus = 'granted';
+        trialResponse = {
+          packageName: trial.name,
+          durationDays: trial.duration_days
+        };
+      }
     }
 
     const responseData = {
@@ -140,10 +184,8 @@ exports.register = async (req, res) => {
         name,
         phone: PhoneValidator.formatDisplay(normalizedPhone)
       },
-      trialPackage: trialPackages.length > 0 ? {
-        packageName: trialPackages[0].name,
-        durationDays: trialPackages[0].duration_days
-      } : null
+      trialPackage: trialResponse, // Only present if granted
+      trialStatus: trialStatus // 'granted', 'denied', 'unavailable'
     };
 
 
@@ -437,5 +479,153 @@ exports.me = async (req, res) => {
       success: false,
       message: 'Invalid token'
     });
+  }
+};
+
+/**
+ * REQUEST DELETE OTP
+ * POST /api/auth/request-delete-otp
+ */
+exports.requestDeleteOTP = async (req, res) => {
+  try {
+    const userId = req.user.id; // From middleware
+
+    const [users] = await db.query(
+      'SELECT id, name, phone FROM users WHERE id = ?',
+      [userId]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({ success: false, message: 'User tidak ditemukan' });
+    }
+
+    const user = users[0];
+
+    // Generate OTP
+    const { otp, expiredAt } = await OTPValidator.createOTP(userId, 'delete_account');
+    Logger.auth('DELETE_OTP_REQ', `Delete OTP requested for user ${userId}`);
+
+    // Send via WhatsApp
+    let whatsappSent = false;
+    try {
+      const connected = await waGateway.isConnected();
+      if (connected) {
+        await waGateway.sendOTP(user.phone, user.name, otp, 'delete_account');
+        whatsappSent = true;
+      }
+    } catch (waError) {
+      Logger.error('WHATSAPP', 'Failed to send delete OTP', waError);
+    }
+
+    // Return response
+    return res.status(200).json({
+      success: true,
+      message: whatsappSent
+        ? 'Kode konfirmasi penghapusan akun telah dikirim ke WhatsApp.'
+        : 'Gagal mengirim kode ke WhatsApp. Silakan coba lagi.',
+      otpSent: whatsappSent
+      // No dev OTP fallback for safety
+    });
+
+  } catch (error) {
+    Logger.error('AUTH', 'Request delete OTP error', error);
+    return res.status(500).json({ success: false, message: 'Terjadi kesalahan server' });
+  }
+};
+
+/**
+ * DELETE ACCOUNT PERMANENTLY
+ * POST /api/auth/delete-account
+ */
+exports.deleteAccount = async (req, res) => {
+  let connection;
+  try {
+    const userId = req.user.id; // From middleware
+    const { otp } = req.body;
+
+    if (!otp) {
+      return res.status(400).json({ success: false, message: 'OTP diperlukan' });
+    }
+
+    Logger.auth('DELETE_ACCOUNT_ATTEMPT', `User: ${userId}`);
+
+    // Verify OTP
+    const verification = await OTPValidator.verifyOTP(userId, otp, 'delete_account');
+    if (!verification.valid) {
+      return res.status(400).json({ success: false, message: verification.message });
+    }
+
+    // START TRANSACTION
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    try {
+      // 1. Log to deleted_users_history (Anti-Abuse)
+      // Check if user has used trial
+      const [tokens] = await connection.query(
+        'SELECT id FROM user_tokens WHERE user_id = ? AND is_trial = 1 LIMIT 1',
+        [userId]
+      );
+      const hasUsedTrial = tokens.length > 0 ? 1 : 0;
+
+      // Get user info before delete
+      const [userInfo] = await connection.query(
+        'SELECT name, email, phone FROM users WHERE id = ?',
+        [userId]
+      );
+
+      if (userInfo.length > 0) {
+        const u = userInfo[0];
+        await connection.query(
+          `INSERT INTO deleted_users_history (original_user_id, name, email, phone, has_used_trial, deleted_at)
+           VALUES (?, ?, ?, ?, ?, NOW())`,
+          [userId, u.name, u.email, u.phone, hasUsedTrial]
+        );
+      }
+
+      // 2. Delete OTP Verifications
+      await connection.query('DELETE FROM otp_verifications WHERE user_id = ?', [userId]);
+
+      // 3. Delete Payment Confirmations (via Payments)
+      const [payments] = await connection.query('SELECT id FROM payments WHERE user_id = ?', [userId]);
+      const paymentIds = payments.map(p => p.id);
+
+      if (paymentIds.length > 0) {
+        await connection.query(
+          `DELETE FROM payment_confirmations WHERE payment_id IN (?)`,
+          [paymentIds]
+        );
+      }
+
+      // 4. Delete Payments
+      await connection.query('DELETE FROM payments WHERE user_id = ?', [userId]);
+
+      // 5. Delete User Tokens (Packages)
+      await connection.query('DELETE FROM user_tokens WHERE user_id = ?', [userId]);
+
+      // 6. Delete User
+      await connection.query('DELETE FROM users WHERE id = ?', [userId]);
+
+      await connection.commit();
+      Logger.auth('DELETE_ACCOUNT_SUCCESS', `User deleted permanently: ${userId}`);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Akun Anda berhasil dihapus selamanya.'
+      });
+
+    } catch (dbError) {
+      await connection.rollback();
+      throw dbError;
+    }
+
+  } catch (error) {
+    Logger.error('AUTH', 'Delete account error', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi kesalahan saat menghapus akun'
+    });
+  } finally {
+    if (connection) connection.release();
   }
 };
