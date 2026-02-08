@@ -7,8 +7,7 @@ const db = require('../config/db');
 const bcrypt = require('bcryptjs');
 const Logger = require('../utils/logger');
 const OTPValidator = require('../utils/otpValidator');
-const whatsappClient = require('../utils/whatsappClient');
-const { WhatsAppTemplates } = require('../utils/whatsappTemplates');
+const waGateway = require('../utils/whatsappGateway');
 
 /**
  * REQUEST PASSWORD RESET
@@ -55,14 +54,13 @@ exports.forgotPassword = async (req, res) => {
     // Generate OTP
     const { otp } = await OTPValidator.createOTP(user.id, 'reset');
 
-    // Send OTP via WhatsApp
+    // Send OTP via WhatsApp Gateway
     let whatsappSent = false;
     try {
-      if (whatsappClient.isReady) {
-        const message = WhatsAppTemplates.forgotPasswordOTP(user.name, otp);
-        await whatsappClient.sendMessage(user.phone, message);
+      const connected = await waGateway.isConnected();
+      if (connected) {
+        await waGateway.sendOTP(user.phone, user.name, otp, 'reset_password');
         whatsappSent = true;
-
         Logger.whatsapp('FORGOT_PASSWORD_OTP', `OTP sent to ${user.phone}`);
       }
     } catch (error) {
@@ -193,13 +191,13 @@ exports.resetPassword = async (req, res) => {
       [hashedPassword, user.id]
     );
 
-    // Send notification
+    // Send notification via WhatsApp Gateway
     try {
-      if (whatsappClient.isReady) {
+      const connected = await waGateway.isConnected();
+      if (connected) {
         const time = new Date().toLocaleString('id-ID');
-        const message = WhatsAppTemplates.passwordChanged(user.name, time);
-        await whatsappClient.sendMessage(phone, message);
-
+        const message = `🔐 *Password Anda Telah Diubah*\n\nHalo ${user.name}!\n\n⏰ Waktu: ${time}\n\nJika ini bukan Anda, segera hubungi support.\n\n_Nuansa Solution - Your Digital Partner_`;
+        await waGateway.sendMessage(phone, message);
         Logger.whatsapp('PASSWORD_CHANGED', `Notification sent to ${phone}`);
       }
     } catch (error) {
@@ -266,14 +264,13 @@ exports.resendResetOTP = async (req, res) => {
     // Generate new OTP
     const { otp } = await OTPValidator.createOTP(user.id, 'reset');
 
-    // Send via WhatsApp
+    // Send via WhatsApp Gateway
     let whatsappSent = false;
     try {
-      if (whatsappClient.isReady) {
-        const message = WhatsAppTemplates.forgotPasswordOTP(user.name, otp);
-        await whatsappClient.sendMessage(phone, message);
+      const connected = await waGateway.isConnected();
+      if (connected) {
+        await waGateway.sendOTP(phone, user.name, otp, 'resend_reset_password');
         whatsappSent = true;
-
         Logger.whatsapp('RESEND_RESET_OTP', `OTP resent to ${phone}`);
       }
     } catch (error) {

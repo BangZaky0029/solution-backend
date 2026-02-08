@@ -8,8 +8,9 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { v4: uuid } = require('uuid');
 const Logger = require('../utils/logger');
-const whatsappClient = require('../utils/whatsappClient');
-const { WhatsAppTemplates, formatDate } = require('../utils/whatsappTemplates');
+// const whatsappClient = require('../utils/whatsappClient'); // DEPRECATED
+// const { WhatsAppTemplates, formatDate } = require('../utils/whatsappTemplates'); // DEPRECATED
+const waGateway = require('../utils/whatsappGateway'); // NEW GATEWAY
 
 /**
  * ADMIN LOGIN
@@ -137,7 +138,7 @@ exports.activate = async (req, res) => {
     Logger.payment('ACTIVATE_ATTEMPT', `Admin activating payment: ${payment_id}`);
 
     const [rows] = await db.query(
-      `SELECT p.*, pk.duration_days, pk.name as package_name, u.name as user_name, u.phone
+      `SELECT p.*, pk.duration_days, pk.name as package_name, u.name as user_name, u.phone, u.id as user_id
        FROM payments p
        JOIN packages pk ON pk.id=p.package_id
        JOIN users u ON u.id=p.user_id
@@ -191,23 +192,30 @@ exports.activate = async (req, res) => {
       packageId: payment.package_id
     });
 
-    // Send WhatsApp notification
+    // Send WhatsApp notification using NEW Gateway
     try {
-      if (whatsappClient.isReady) {
-        const expiryDateStr = formatDate(expiryDate);
-        const message = WhatsAppTemplates.paymentApproved(
-          payment.user_name,
-          payment.package_name,
-          payment.duration_days,
-          expiryDateStr
-        );
+      const connected = await waGateway.isConnected();
+      if (connected) {
+        // Format expiry date
+        const expiryDateStr = expiryDate.toLocaleDateString('id-ID', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric'
+        });
 
-        await whatsappClient.sendMessage(payment.phone, message);
+        await waGateway.sendPaymentApproved(payment.phone, {
+          userName: payment.user_name,
+          packageName: payment.package_name,
+          durationDays: payment.duration_days,
+          expiryDate: expiryDateStr
+        });
 
         Logger.whatsapp('PAYMENT_APPROVED', `Notification sent to ${payment.phone}`, {
           userId: payment.user_id,
           paymentId: payment_id
         });
+      } else {
+        Logger.warn('PAYMENT_APPROVED', 'WhatsApp gateway not connected, skipping notification');
       }
     } catch (error) {
       Logger.error('WHATSAPP', 'Failed to send payment approved notification', error);

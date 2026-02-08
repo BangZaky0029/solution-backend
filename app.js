@@ -12,6 +12,12 @@ const path = require('path');
 const requestLogger = require('./middlewares/requestLogger');
 require('./utils/cron');
 
+// Initialize subscription reminder cron (daily 9:00 AM)
+const subscriptionCron = require('./cron/subscriptionCron');
+if (process.env.WHATSAPP_ENABLED === 'true') {
+  subscriptionCron.initCron();
+}
+
 // Routes
 const authRoutes = require('./routes/auth');
 const paymentRoutes = require('./routes/payment');

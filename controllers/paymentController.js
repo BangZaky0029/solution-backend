@@ -9,8 +9,7 @@ const path = require('path');
 const crypto = require('crypto');
 const multer = require('multer');
 const Logger = require('../utils/logger');
-const whatsappClient = require('../utils/whatsappClient');
-const { WhatsAppTemplates, formatCurrency, formatDate } = require('../utils/whatsappTemplates');
+const waGateway = require('../utils/whatsappGateway');
 
 const StorageService = require('../services/storageService');
 const upload = multer({ storage: StorageService.getStorageEngine() });
@@ -178,9 +177,10 @@ exports.confirm = [
       await connection.commit();
       Logger.payment('CONFIRM_SUCCESS', `Payment confirmed: ${payment_id}`, { userId });
 
-      // Send WhatsApp notification (Async - Outside Transaction)
+      // Send WhatsApp notification via Gateway (Async - Outside Transaction)
       try {
-        if (whatsappClient.isReady) {
+        const connected = await waGateway.isConnected();
+        if (connected) {
           const [users] = await db.query(
             'SELECT name, phone FROM users WHERE id = ?',
             [userId]
@@ -188,19 +188,22 @@ exports.confirm = [
 
           if (users.length > 0) {
             const user = users[0];
-            const message = WhatsAppTemplates.paymentReceived(
-              user.name,
-              payment.package_name,
-              payment.amount,
-              payment_id
-            );
-
-            // Fire and forget
-            whatsappClient.sendMessage(user.phone, message).catch(err =>
-              Logger.error('WHATSAPP', 'Failed async send', err)
-            );
+            await waGateway.sendPaymentReceived(user.phone, {
+              userName: user.name,
+              packageName: payment.package_name,
+              amount: payment.amount,
+              paymentId: payment_id
+            });
 
             Logger.whatsapp('PAYMENT_RECEIVED', `Notification queued for ${user.phone}`, { userId, payment_id });
+
+            // Notify Admin
+            await waGateway.sendAdminPaymentConfirmation({
+              user_name: user.name,
+              package_name: payment.package_name,
+              amount: payment.amount,
+              invoice_id: `#${payment_id}`
+            });
           }
         }
       } catch (error) {
@@ -458,9 +461,10 @@ exports.adminActivatePayment = async (req, res) => {
       packageId: payment.package_id
     });
 
-    // Send WhatsApp notification (Async)
+    // Send WhatsApp notification via Gateway (Async)
     try {
-      if (whatsappClient.isReady) {
+      const connected = await waGateway.isConnected();
+      if (connected) {
         const [users] = await db.query(
           'SELECT name, phone FROM users WHERE id = ?',
           [payment.user_id]
@@ -468,18 +472,18 @@ exports.adminActivatePayment = async (req, res) => {
 
         if (users.length > 0) {
           const user = users[0];
-          const expiryDateStr = formatDate(expiryDate);
+          const expiryDateStr = expiryDate.toLocaleDateString('id-ID', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric'
+          });
 
-          const message = WhatsAppTemplates.paymentApproved(
-            user.name,
-            payment.package_name,
-            payment.duration_days,
-            expiryDateStr
-          );
-
-          whatsappClient.sendMessage(user.phone, message).catch(err =>
-            Logger.error('WHATSAPP', 'Failed async send', err)
-          );
+          await waGateway.sendPaymentApproved(user.phone, {
+            userName: user.name,
+            packageName: payment.package_name,
+            durationDays: payment.duration_days,
+            expiryDate: expiryDateStr
+          });
 
           Logger.whatsapp('PAYMENT_APPROVED', `Notification queued for ${user.phone}`, {
             userId: payment.user_id,

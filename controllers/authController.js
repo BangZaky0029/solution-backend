@@ -6,6 +6,7 @@ const { v4: uuid } = require('uuid');
 const Logger = require('../utils/logger');
 const OTPValidator = require('../utils/otpValidator');
 const PhoneValidator = require('../utils/phoneValidator');
+const waGateway = require('../utils/whatsappGateway');
 
 /**
  * REGISTER - OTP ditampilkan di frontend (NO WHATSAPP)
@@ -100,7 +101,7 @@ exports.register = async (req, res) => {
 
     if (trialPackages.length > 0) {
       const trial = trialPackages[0];
-      
+
       await db.query(
         `INSERT INTO user_tokens
          (user_id, package_id, token, activated_at, expired_at, is_active, is_trial)
@@ -111,13 +112,29 @@ exports.register = async (req, res) => {
       Logger.info('TRIAL', `Trial package activated for user ${userId}`, { packageName: trial.name });
     }
 
-    // 🔥🔥🔥 CRITICAL: Response dengan OTP HARUS di-return ke frontend
+    // 🔥 Send OTP via WhatsApp Gateway
+    let whatsappSent = false;
+    try {
+      const connected = await waGateway.isConnected();
+      if (connected) {
+        await waGateway.sendOTP(normalizedPhone, name, otp, 'register');
+        whatsappSent = true;
+        Logger.whatsapp('REGISTER_OTP', `OTP sent to ${normalizedPhone}`);
+      }
+    } catch (waError) {
+      Logger.error('WHATSAPP', 'Failed to send registration OTP', waError);
+    }
+
     const responseData = {
       success: true,
-      message: 'Registrasi berhasil! Silakan verifikasi OTP.',
-      otp: otp,
+      message: whatsappSent
+        ? 'Registrasi berhasil! Kode OTP telah dikirim ke WhatsApp Anda.'
+        : 'Registrasi berhasil! Silakan verifikasi OTP.',
+      otpSent: whatsappSent,
+      // Only return OTP in response if WhatsApp failed (development fallback)
+      ...((!whatsappSent || process.env.NODE_ENV === 'development') && { otp }),
       otpExpiry: expiredAt,
-      otpDuration: 30,
+      otpDuration: 300, // 5 minutes
       user: {
         email,
         name,
@@ -263,18 +280,31 @@ exports.resendOtp = async (req, res) => {
 
     // Generate new OTP
     const { otp, expiredAt } = await OTPValidator.createOTP(user.id, 'verify');
-
     Logger.auth('RESEND_OTP_SUCCESS', `New OTP for user ${user.id}: ${otp}`);
+
+    // 🔥 Send OTP via WhatsApp Gateway
+    let whatsappSent = false;
+    try {
+      const connected = await waGateway.isConnected();
+      if (connected) {
+        await waGateway.sendOTP(user.phone, user.name, otp, 'register');
+        whatsappSent = true;
+        Logger.whatsapp('RESEND_OTP', `OTP resent to ${user.phone}`);
+      }
+    } catch (waError) {
+      Logger.error('WHATSAPP', 'Failed to resend OTP', waError);
+    }
 
     const responseData = {
       success: true,
-      message: 'OTP baru telah dibuat',
-      otp: otp, // ⭐ Return OTP
+      message: whatsappSent
+        ? 'Kode OTP baru telah dikirim ke WhatsApp Anda'
+        : 'OTP baru telah dibuat',
+      otpSent: whatsappSent,
+      ...((!whatsappSent || process.env.NODE_ENV === 'development') && { otp }),
       otpExpiry: expiredAt,
-      otpDuration: 30
+      otpDuration: 300
     };
-
-    console.log('📤 RESEND OTP RESPONSE:', responseData);
 
     return res.status(200).json(responseData);
 
@@ -368,7 +398,7 @@ exports.login = async (req, res) => {
 exports.me = async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
-    
+
     if (!authHeader) {
       return res.status(401).json({
         success: false,
