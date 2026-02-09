@@ -84,16 +84,19 @@ app.use(helmet({
 }));
 
 // CORS - Restrict origins in production
-const allowedOrigins = process.env.NODE_ENV === 'production'
-  ? [
-    'https://nuansasolution.id',
-    'https://payment.nuansasolution.id',
-    'https://admin-controller.nuansasolution.id',
-    'https://api.nuansasolution.id',
-    process.env.ADMIN_URL,
-    process.env.CLIENT_URL
-  ].filter(Boolean) // Filter out undefined if env vars are missing
-  : ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174'];
+const allowedOrigins = [
+  'https://nuansasolution.id',
+  'https://payment.nuansasolution.id',
+  'https://admin-controller.nuansasolution.id',
+  'https://api.nuansasolution.id',
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
+  process.env.ADMIN_URL,
+  process.env.CLIENT_URL
+].filter(Boolean);
 
 app.use(cors({
   origin: (origin, callback) => {
