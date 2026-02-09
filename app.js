@@ -59,6 +59,7 @@ const packageRoutes = require('./routes/package');
 const userRoutes = require('./routes/user');
 const statsRoutes = require('./routes/stats');
 const healthRoutes = require('./routes/health');
+const accessRoutes = require('./routes/access');
 
 const app = express();
 
@@ -85,13 +86,14 @@ app.use(helmet({
 // CORS - Restrict origins in production
 const allowedOrigins = process.env.NODE_ENV === 'production'
   ? [
+    'https://nuansasolution.id',
     'https://payment.nuansasolution.id',
     'https://admin-controller.nuansasolution.id',
     'https://api.nuansasolution.id',
     process.env.ADMIN_URL,
     process.env.CLIENT_URL
   ].filter(Boolean) // Filter out undefined if env vars are missing
-  : ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:5173'];
+  : ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174'];
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -155,6 +157,7 @@ app.use('/api/link', linkRoutes);
 app.use('/api/packages', packageRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/stats', statsRoutes);
+app.use('/api/access', accessRoutes); // Access check endpoint (public)
 // app.use('/api/whatsapp', whatsappRoutes); // <-- WhatsApp route
 app.use('/health', healthRoutes);
 

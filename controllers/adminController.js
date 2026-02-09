@@ -181,6 +181,49 @@ exports.activate = async (req, res) => {
       [payment.user_id, payment.package_id, token, expiryDate]
     );
 
+    // =========================================
+    // 🔥 INSERT USER_SUBSCRIPTIONS
+    // Get all features for this package and create subscriptions
+    // =========================================
+    const [packageFeatures] = await db.query(
+      'SELECT feature_id FROM package_features WHERE package_id = ?',
+      [payment.package_id]
+    );
+
+    if (packageFeatures.length > 0) {
+      // Deactivate old subscriptions for this user first
+      await db.query(
+        'UPDATE user_subscriptions SET is_active = 0 WHERE user_id = ? AND is_active = 1',
+        [payment.user_id]
+      );
+
+      // Insert new subscriptions for each feature
+      for (const pf of packageFeatures) {
+        await db.query(
+          `INSERT INTO user_subscriptions 
+           (user_id, feature_id, package_id, started_at, expired_at, is_active)
+           VALUES (?, ?, ?, NOW(), ?, 1)
+           ON DUPLICATE KEY UPDATE 
+             package_id = VALUES(package_id),
+             started_at = NOW(),
+             expired_at = VALUES(expired_at),
+             is_active = 1`,
+          [payment.user_id, pf.feature_id, payment.package_id, expiryDate]
+        );
+      }
+
+      Logger.payment('SUBSCRIPTIONS_CREATED', `Created ${packageFeatures.length} subscriptions`, {
+        userId: payment.user_id,
+        packageId: payment.package_id,
+        features: packageFeatures.map(pf => pf.feature_id)
+      });
+    } else {
+      Logger.payment('SUBSCRIPTIONS_SKIPPED', `No features found for package_id=${payment.package_id}`, {
+        userId: payment.user_id,
+        packageId: payment.package_id
+      });
+    }
+
     // Update payment status
     await db.query(
       `UPDATE payments SET status='confirmed', updated_at=NOW() WHERE id=?`,
