@@ -9,13 +9,13 @@ const Logger = require('../utils/logger');
 /**
  * CHECK ACCESS - Public Endpoint (No Auth Required)
  * POST /api/access/check
- * 
+ *
  * Request Body:
  * {
  *   "phone": "628xxxx",
  *   "feature_slug": "akuntansi"
  * }
- * 
+ *
  * Response:
  * { "status": true/false, "message": "..." }
  */
@@ -82,12 +82,12 @@ exports.checkAccess = async (req, res) => {
 
         // 4. Check user_subscriptions for active subscription
         const [subscriptions] = await db.query(
-            `SELECT id, expired_at 
-       FROM user_subscriptions 
-       WHERE user_id = ? 
-         AND feature_id = ? 
-         AND is_active = 1 
-         AND expired_at > NOW() 
+            `SELECT id, expired_at
+       FROM user_subscriptions
+       WHERE user_id = ?
+         AND feature_id = ?
+         AND is_active = 1
+         AND expired_at > NOW()
        LIMIT 1`,
             [userId, feature.id]
         );
@@ -122,7 +122,7 @@ exports.checkAccess = async (req, res) => {
 /**
  * CHECK MULTIPLE FEATURES - Public Endpoint
  * POST /api/access/check-multiple
- * 
+ *
  * Request Body:
  * {
  *   "phone": "628xxxx",
@@ -170,10 +170,10 @@ exports.checkMultipleAccess = async (req, res) => {
 
         // Get user's active subscriptions
         const [subscriptions] = await db.query(
-            `SELECT feature_id 
-       FROM user_subscriptions 
-       WHERE user_id = ? 
-         AND is_active = 1 
+            `SELECT feature_id
+       FROM user_subscriptions
+       WHERE user_id = ?
+         AND is_active = 1
          AND expired_at > NOW()`,
             [userId]
         );
