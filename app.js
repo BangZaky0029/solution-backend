@@ -86,30 +86,32 @@ app.use(helmet({
 // CORS - Restrict origins in production
 const allowedOrigins = [
   'https://nuansasolution.id',
+  'https://www.nuansasolution.id',
   'https://payment.nuansasolution.id',
   'https://admin-controller.nuansasolution.id',
   'https://api.nuansasolution.id',
-  'http://localhost:3000',
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:5174',
   process.env.ADMIN_URL,
-  process.env.CLIENT_URL
+  process.env.CLIENT_URL,
+  process.env.PAYMENT_URL, // Pastikan ini juga dipanggil
+  'http://localhost:3000',
+  'http://localhost:5173'
 ].filter(Boolean);
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, etc) in dev
-    if (!origin && process.env.NODE_ENV !== 'production') {
+    // Izinkan jika tidak ada origin (untuk server-to-server atau mobile apps)
+    if (!origin) {
       return callback(null, true);
     }
+
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
+
+    // Log untuk debug (akan muncul di pm2 logs jika ditolak)
+    console.log("CORS Rejected from:", origin);
     callback(new Error('CORS not allowed'));
   },
-  // origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
 }));
