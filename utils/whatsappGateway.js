@@ -177,30 +177,32 @@ class WhatsAppGateway {
         let message = '';
 
         try {
+            const logsLink = "\n\n📊 *Full Logs:* https://docs.google.com/spreadsheets/d/1RmkiCW4zRe7DrBSHfCyKZBM1TChHyYYZDBR-p2AB5nY/edit?gid=0#gid=0";
+
             switch (event_type) {
                 case 'REGISTER':
-                    message = `🚀 *[DEV ALERT] - NEW USER REGISTERED*\n\n👤 *Nama:* ${data.name || '-'}\n📧 *Email:* ${data.email || '-'}\n📱 *Phone:* ${data.phone || '-'}\n\n🎁 *Status Trial:* ${data.trialStatus || 'Tidak Diberikan'}\n🕒 *Timestamp:* ${new Date().toLocaleString('id-ID')}\n\n_Sistem memantau pendaftaran user baru_`;
+                    message = `🚀 *[DEV ALERT] - NEW USER REGISTERED*\n\n👤 *Nama:* ${data.name || '-'}\n📧 *Email:* ${data.email || '-'}\n📱 *Phone:* ${data.phone || '-'}\n\n🎁 *Status Trial:* ${data.trialStatus || 'Tidak Diberikan'}\n🕒 *Timestamp:* ${new Date().toLocaleString('id-ID')}\n\n_Sistem memantau pendaftaran user baru_` + logsLink;
                     break;
                 case 'LOGIN':
-                    message = `🔑 *[DEV ALERT] - USER LOGIN*\n\n👤 *User:* ${data.name || '-'} (${data.email || '-'})\n🕒 *Timestamp:* ${new Date().toLocaleString('id-ID')}\n\n_Aktivitas masuk dashboard terpantau_`;
+                    message = `🔑 *[DEV ALERT] - USER LOGIN*\n\n👤 *User:* ${data.name || '-'} (${data.email || '-'})\n🕒 *Timestamp:* ${new Date().toLocaleString('id-ID')}\n\n_Aktivitas masuk dashboard terpantau_` + logsLink;
                     break;
                 case 'PAYMENT_PENDING':
-                    message = `💳 *[DEV ALERT] - NEW PAYMENT PENDING*\n\n👤 *User:* ${data.userName || '-'}\n📦 *Paket:* ${data.packageName || '-'}\n💰 *Nominal:* Rp ${this._formatCurrency(data.amount || 0)}\n🧾 *Invoice ID:* #${data.paymentId || '-'}\n\n⚠️ Memerlukan approval Admin di Dashboard!`;
+                    message = `💳 *[DEV ALERT] - NEW PAYMENT PENDING*\n\n👤 *User:* ${data.userName || '-'}\n📦 *Paket:* ${data.packageName || '-'}\n💰 *Nominal:* Rp ${this._formatCurrency(data.amount || 0)}\n🧾 *Invoice ID:* #${data.paymentId || '-'}\n\n⚠️ Memerlukan approval Admin di Dashboard!` + logsLink;
                     break;
                 case 'PAYMENT_APPROVED':
-                    message = `✅ *[DEV ALERT] - PAYMENT APPROVED*\n\n👤 *User:* ${data.userName || '-'}\n📦 *Paket Diaktifkan:* ${data.packageName || '-'}\n⌛ *Durasi:* ${data.durationDays || '-'} Hari\n\n_Paket berhasil diaktivasi secara sistem._`;
+                    message = `✅ *[DEV ALERT] - PAYMENT APPROVED*\n\n👤 *User:* ${data.userName || '-'}\n📦 *Paket Diaktifkan:* ${data.packageName || '-'}\n⌛ *Durasi:* ${data.durationDays || '-'} Hari\n\n_Paket berhasil diaktivasi secara sistem._` + logsLink;
                     break;
                 case 'PACKAGE_EXPIRED':
-                    message = `⚠️ *[DEV ALERT] - PACKAGE EXPIRED*\n\n👤 *User:* ${data.userName || '-'}\n📱 *Phone:* ${data.phone || '-'}\n📦 *Paket Hangus:* ${data.packageName || '-'}\n\n_Sistem cron job telah menonaktifkan token / langganan user ini._`;
+                    message = `⚠️ *[DEV ALERT] - PACKAGE EXPIRED*\n\n👤 *User:* ${data.userName || '-'}\n📱 *Phone:* ${data.phone || '-'}\n📦 *Paket Hangus:* ${data.packageName || '-'}\n\n_Sistem cron job telah menonaktifkan token / langganan user ini._` + logsLink;
                     break;
                 case 'PACKAGE_EXPIRING_SOON':
-                    message = `🕒 *[DEV ALERT] - PACKAGE EXPIRING SOON*\n\n👤 *User:* ${data.userName || '-'}\n📦 *Paket:* ${data.packageName || '-'}\n⏳ *Sisa Hari:* ${data.daysLeft || '-'} Hari\n\n_User telah dikirimi peringatan otomatis._`;
+                    message = `🕒 *[DEV ALERT] - PACKAGE EXPIRING SOON*\n\n👤 *User:* ${data.userName || '-'}\n📦 *Paket:* ${data.packageName || '-'}\n⏳ *Sisa Hari:* ${data.daysLeft || '-'} Hari\n\n_User telah dikirimi peringatan otomatis._` + logsLink;
                     break;
                 case 'EXPIRY_REMINDER_SENT':
-                    message = `📢 *[DEV ALERT] - EXPIRY REMINDER SENT*\n\n👤 *User:* ${data.userName || '-'}\n📦 *Paket:* ${data.packageName || '-'}\n⏳ *H- ${data.daysLeft || '-'}* \n\n_Notifikasi pengingat pembayaran dikirim._`;
+                    message = `📢 *[DEV ALERT] - EXPIRY REMINDER SENT*\n\n👤 *User:* ${data.userName || '-'}\n📦 *Paket:* ${data.packageName || '-'}\n⏳ *H- ${data.daysLeft || '-'}* \n\n_Notifikasi pengingat pembayaran dikirim._` + logsLink;
                     break;
                 default:
-                    message = `🔧 *[DEV ALERT] - SYSTEM EVENT*\n\n*Event:* ${event_type}\n*Data:* ${JSON.stringify(data)}`;
+                    message = `🔧 *[DEV ALERT] - SYSTEM EVENT*\n\n*Event:* ${event_type}\n*Data:* ${JSON.stringify(data)}` + logsLink;
             }
 
             Logger.info('WHATSAPP_GATEWAY', `Sending DEV notification for event: ${event_type}`);
