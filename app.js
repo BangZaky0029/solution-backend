@@ -99,16 +99,17 @@ const allowedOrigins = [
 ].filter(Boolean);
 
 app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, etc) in dev
-    if (!origin && process.env.NODE_ENV !== 'production') {
-      return callback(null, true);
-    }
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    callback(new Error('CORS not allowed'));
-  },
+  // origin: (origin, callback) => {
+  //   // Allow requests with no origin (mobile apps, curl, etc) in dev
+  //   if (!origin && process.env.NODE_ENV !== 'production') {
+  //     return callback(null, true);
+  //   }
+  //   if (allowedOrigins.includes(origin)) {
+  //     return callback(null, true);
+  //   }
+  //   callback(new Error('CORS not allowed'));
+  // },
+  origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
 }));
