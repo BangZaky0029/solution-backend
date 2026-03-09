@@ -41,13 +41,23 @@ class ActivityLogger {
      * Sync data to Google Sheets
      */
     static async syncToGoogleSheets(type, data) {
+        // Format a human-readable activity description
+        let activityDetail = '-';
+        if (type.includes('PAYMENT')) {
+            activityDetail = `${data.package_name || '-'} | Rp ${(data.amount || 0).toLocaleString('id-ID')}`;
+        } else if (type === 'REGISTER') {
+            activityDetail = `Trial: ${data.trial_status || '-'}`;
+        } else if (data.package_name) {
+            activityDetail = data.package_name;
+        }
+
         const row = [
             data.logged_at || new Date().toISOString(),
             type,
             data.user_name || data.name || '-',
             data.phone || data.email || '-',
-            JSON.stringify(data.package_name || data.amount || data.trial_status || '-'),
-            'SUCCESS'
+            activityDetail,
+            data.status || 'SUCCESS' // Use provided status or default to SUCCESS
         ];
 
         return appendRow(row);

@@ -214,13 +214,14 @@ exports.confirm = [
               paymentId: payment_id
             });
 
-            // Log activity to Firebase
+            // Log activity to Firebase & Google Sheets
             ActivityLogger.log('PAYMENT_PENDING', {
               user_id: payment.user_id,
               user_name: user.name,
               package_name: payment.package_name,
               amount: payment.amount,
-              payment_id: payment_id
+              payment_id: payment_id,
+              status: 'PENDING'
             }).catch(console.error);
           }
         }
@@ -559,13 +560,14 @@ exports.adminActivatePayment = async (req, res) => {
             durationDays: payment.duration_days
           });
 
-          // Log activity to Firebase
+          // Log activity to Firebase & Google Sheets
           ActivityLogger.log('PAYMENT_APPROVED', {
             user_id: payment.user_id,
             user_name: user.name,
             package_name: payment.package_name,
             amount: payment.amount,
-            payment_id: paymentId
+            payment_id: paymentId,
+            status: 'SUCCESS'
           }).catch(console.error);
         }
       }

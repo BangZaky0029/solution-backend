@@ -50,7 +50,7 @@ _© 2026 Gateway NUANSA - Security Alert_`;
 
 Halo *${name}*! 🎉
 
-Pembayaran Anda telah berhasil diproses.
+Pembayaran Anda telah berhasil diproses dan dikonfirmasi.
 
 📦 *Paket:* ${packageName}
 💰 *Total:* Rp ${amount.toLocaleString('id-ID')}
@@ -60,7 +60,9 @@ Paket Anda sekarang aktif! ✅
 
 Terima kasih telah mempercayai Gateway NUANSA.
 
-_© 2026 Gateway Apto_`;
+📊 *Cek Status Transaksi:* https://docs.google.com/spreadsheets/d/1RmkiCW4zRe7DrBSHfCyKZBM1TChHyYYZDBR-p2AB5nY/edit?gid=0#gid=0
+
+_© 2026 Gateway NUANSA_`;
   }
 
   static customMessage(message) {
