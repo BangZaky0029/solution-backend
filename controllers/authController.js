@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuid } = require('uuid');
 const Logger = require('../utils/logger');
+const ActivityLogger = require('../utils/activityLogger');
 const OTPValidator = require('../utils/otpValidator');
 const PhoneValidator = require('../utils/phoneValidator');
 const waGateway = require('../utils/whatsappGateway');
@@ -187,6 +188,15 @@ exports.register = async (req, res) => {
       trialPackage: trialResponse, // Only present if granted
       trialStatus: trialStatus // 'granted', 'denied', 'unavailable'
     };
+
+    // Log activity to Firebase
+    ActivityLogger.log('REGISTER', {
+      user_id: user.id || null,
+      name,
+      email,
+      phone: PhoneValidator.formatDisplay(normalizedPhone),
+      trial_status: trialStatus
+    }).catch(console.error);
 
     // Send developer notification
     try {
@@ -428,6 +438,13 @@ exports.login = async (req, res) => {
     );
 
     Logger.auth('LOGIN_SUCCESS', `User logged in: ${user.id}`);
+
+    // Log activity to Firebase
+    ActivityLogger.log('LOGIN', {
+      user_id: user.id,
+      name: user.name,
+      email: user.email
+    }).catch(console.error);
 
     // Send developer notification
     try {

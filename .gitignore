@@ -116,3 +116,7 @@ ehthumbs.db
 docker-data/
 *.pid
 *.sock
+
+
+# Firebase & Google Sheets Keys
+*.json

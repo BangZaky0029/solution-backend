@@ -9,6 +9,7 @@ const path = require('path');
 const crypto = require('crypto');
 const multer = require('multer');
 const Logger = require('../utils/logger');
+const ActivityLogger = require('../utils/activityLogger');
 const waGateway = require('../utils/whatsappGateway');
 
 const StorageService = require('../services/storageService');
@@ -212,6 +213,15 @@ exports.confirm = [
               amount: payment.amount,
               paymentId: payment_id
             });
+
+            // Log activity to Firebase
+            ActivityLogger.log('PAYMENT_PENDING', {
+              user_id: payment.user_id,
+              user_name: user.name,
+              package_name: payment.package_name,
+              amount: payment.amount,
+              payment_id: payment_id
+            }).catch(console.error);
           }
         }
       } catch (error) {
@@ -548,6 +558,15 @@ exports.adminActivatePayment = async (req, res) => {
             packageName: payment.package_name,
             durationDays: payment.duration_days
           });
+
+          // Log activity to Firebase
+          ActivityLogger.log('PAYMENT_APPROVED', {
+            user_id: payment.user_id,
+            user_name: user.name,
+            package_name: payment.package_name,
+            amount: payment.amount,
+            payment_id: paymentId
+          }).catch(console.error);
         }
       }
     } catch (error) {

@@ -5,6 +5,7 @@
 
 const db = require('../config/db');
 const Logger = require('./logger');
+const ActivityLogger = require('./activityLogger');
 const waGateway = require('./whatsappGateway');
 const { WhatsAppTemplates, formatDate } = require('./whatsappTemplates');
 
@@ -118,6 +119,14 @@ async function sendExpiryNotifications() {
           phone: user.phone,
           packageName: user.package_name
         });
+
+        // Log activity to Firebase
+        ActivityLogger.log('PACKAGE_EXPIRED', {
+          user_id: user.id,
+          user_name: user.name,
+          phone: user.phone,
+          package_name: user.package_name
+        }).catch(console.error);
 
       } catch (error) {
         Logger.error('WHATSAPP', `Failed to send expiry notification to ${user.phone}`, error);
