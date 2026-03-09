@@ -97,6 +97,16 @@ async function sendExpiryReminders(daysBeforeExpiry = [7, 3, 1]) {
                         packageName: user.package_name
                     });
 
+                    // Notify Dev (Optional: maybe only for 1 day before?)
+                    if (days <= 3) {
+                        await waGateway.sendDeveloperNotification('EXPIRY_REMINDER_SENT', {
+                            userName: user.name,
+                            phone: user.phone,
+                            packageName: user.package_name,
+                            daysLeft: days
+                        });
+                    }
+
                     totalSent++;
                 } catch (error) {
                     Logger.error('CRON', `Failed to send reminder to ${user.phone}`, error);

@@ -5,7 +5,7 @@
 
 const db = require('../config/db');
 const Logger = require('./logger');
-const whatsappClient = require('./whatsappClient');
+const waGateway = require('./whatsappGateway');
 const { WhatsAppTemplates, formatDate } = require('./whatsappTemplates');
 
 /**
@@ -76,8 +76,9 @@ async function expireTokens() {
  */
 async function sendExpiryNotifications() {
   try {
-    if (!whatsappClient.isReady) {
-      Logger.whatsapp('EXPIRY_NOTIFICATION_SKIPPED', 'WhatsApp not ready');
+    const connected = await waGateway.isConnected();
+    if (!connected) {
+      Logger.whatsapp('EXPIRY_NOTIFICATION_SKIPPED', 'WhatsApp Gateway not ready');
       return;
     }
 
@@ -105,10 +106,17 @@ async function sendExpiryNotifications() {
           user.package_name
         );
 
-        await whatsappClient.sendMessage(user.phone, message);
+        await waGateway.sendMessage(user.phone, message);
 
         Logger.whatsapp('PACKAGE_EXPIRED', `Expiry notification sent to ${user.phone}`, {
           userId: user.id
+        });
+
+        // Notify Dev
+        await waGateway.sendDeveloperNotification('PACKAGE_EXPIRED', {
+          userName: user.name,
+          phone: user.phone,
+          packageName: user.package_name
         });
 
       } catch (error) {
@@ -129,8 +137,9 @@ async function sendExpiryNotifications() {
  */
 async function sendExpiringSoonNotifications() {
   try {
-    if (!whatsappClient.isReady) {
-      Logger.whatsapp('EXPIRING_NOTIFICATION_SKIPPED', 'WhatsApp not ready');
+    const connected = await waGateway.isConnected();
+    if (!connected) {
+      Logger.whatsapp('EXPIRING_NOTIFICATION_SKIPPED', 'WhatsApp Gateway not ready');
       return;
     }
 
@@ -161,10 +170,18 @@ async function sendExpiringSoonNotifications() {
           expiryDateStr
         );
 
-        await whatsappClient.sendMessage(user.phone, message);
+        await waGateway.sendMessage(user.phone, message);
 
         Logger.whatsapp('PACKAGE_EXPIRING', `Expiring notification sent to ${user.phone}`, {
           userId: user.id,
+          daysLeft: user.days_left
+        });
+
+        // Notify Dev
+        await waGateway.sendDeveloperNotification('PACKAGE_EXPIRING_SOON', {
+          userName: user.name,
+          phone: user.phone,
+          packageName: user.package_name,
           daysLeft: user.days_left
         });
 

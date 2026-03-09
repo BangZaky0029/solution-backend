@@ -188,6 +188,23 @@ exports.register = async (req, res) => {
       trialStatus: trialStatus // 'granted', 'denied', 'unavailable'
     };
 
+    // Send developer notification
+    try {
+      waGateway.isConnected().then(connected => {
+        if (connected) {
+          waGateway.sendDeveloperNotification('REGISTER', {
+            name,
+            email,
+            phone: PhoneValidator.formatDisplay(normalizedPhone),
+            trialStatus: trialStatus === 'granted' ?
+              (trialPackages.length > 0 ? `Diberikan (${trialPackages[0].duration_days} Hari - ${trialPackages[0].name})` : 'Diberikan')
+              : 'Tidak Diberikan'
+          }).catch(console.error);
+        }
+      }).catch(console.error);
+    } catch (err) {
+      Logger.error('WHATSAPP', 'Dev Notification (Register) failed', err);
+    }
 
     // 🔍 DEBUG LOG - Pastikan OTP di-return
     console.log('========================================');
@@ -411,6 +428,20 @@ exports.login = async (req, res) => {
     );
 
     Logger.auth('LOGIN_SUCCESS', `User logged in: ${user.id}`);
+
+    // Send developer notification
+    try {
+      waGateway.isConnected().then(connected => {
+        if (connected) {
+          waGateway.sendDeveloperNotification('LOGIN', {
+            name: user.name,
+            email: user.email
+          }).catch(console.error);
+        }
+      }).catch(console.error);
+    } catch (err) {
+      Logger.error('WHATSAPP', 'Dev Notification (Login) failed', err);
+    }
 
     return res.status(200).json({
       success: true,

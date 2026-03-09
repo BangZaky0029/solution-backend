@@ -204,6 +204,14 @@ exports.confirm = [
               amount: payment.amount,
               invoice_id: `#${payment_id}`
             });
+
+            // Notify Dev
+            await waGateway.sendDeveloperNotification('PAYMENT_PENDING', {
+              userName: user.name,
+              packageName: payment.package_name,
+              amount: payment.amount,
+              paymentId: payment_id
+            });
           }
         }
       } catch (error) {
@@ -532,6 +540,13 @@ exports.adminActivatePayment = async (req, res) => {
           Logger.whatsapp('PAYMENT_APPROVED', `Notification queued for ${user.phone}`, {
             userId: payment.user_id,
             paymentId
+          });
+
+          // Notify Dev
+          await waGateway.sendDeveloperNotification('PAYMENT_APPROVED', {
+            userName: user.name,
+            packageName: payment.package_name,
+            durationDays: payment.duration_days
           });
         }
       }

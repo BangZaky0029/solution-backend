@@ -41,7 +41,7 @@ class WhatsAppGateway {
 
         try {
             Logger.info('WHATSAPP_GATEWAY', `Checking connection to ${this.baseUrl}`);
-            const response = await this._fetch('/api/whatsapp/status', 'GET');
+            const response = await this._fetch('/api/whatsapp/main-session/status', 'GET');
 
             // Check isConnected or status === 'open'
             const isConnected = response.isConnected === true || response.status === 'open';
@@ -58,7 +58,7 @@ class WhatsAppGateway {
      */
     async getStatus() {
         try {
-            return await this._fetch('/api/whatsapp/status', 'GET');
+            return await this._fetch('/api/whatsapp/main-session/status', 'GET');
         } catch (error) {
             return { connection: 'disconnected', error: error.message };
         }
@@ -81,7 +81,7 @@ class WhatsAppGateway {
         }
 
         try {
-            const result = await this._fetch('/api/whatsapp/send', 'POST', {
+            const result = await this._fetch('/api/whatsapp/main-session/send', 'POST', {
                 number: phoneValidation.normalized,
                 message: message
             });
@@ -158,9 +158,58 @@ class WhatsAppGateway {
 
         try {
             Logger.info('WHATSAPP_GATEWAY', `Sending admin payment notification for user: ${data.user_name}`);
-            return await this._fetch('/api/whatsapp/notify/payment-confirmation', 'POST', data);
+            return await this._fetch('/api/whatsapp/main-session/notify/payment-confirmation', 'POST', data);
         } catch (error) {
             Logger.error('WHATSAPP_GATEWAY', 'Failed to send admin payment notification', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
+     * Send Developer Notification (081995770190)
+     * @param {string} event_type - Type of event
+     * @param {object} data - Data to format into the message
+     */
+    async sendDeveloperNotification(event_type, data) {
+        if (!this.enabled) return { success: false, reason: 'disabled' };
+
+        const DEV_NUMBER = process.env.DEVELOPER_WA_NUMBER || '6281995770190';
+        let message = '';
+
+        try {
+            switch (event_type) {
+                case 'REGISTER':
+                    message = `🚀 *[DEV ALERT] - NEW USER REGISTERED*\n\n👤 *Nama:* ${data.name || '-'}\n📧 *Email:* ${data.email || '-'}\n📱 *Phone:* ${data.phone || '-'}\n\n🎁 *Status Trial:* ${data.trialStatus || 'Tidak Diberikan'}\n🕒 *Timestamp:* ${new Date().toLocaleString('id-ID')}\n\n_Sistem memantau pendaftaran user baru_`;
+                    break;
+                case 'LOGIN':
+                    message = `🔑 *[DEV ALERT] - USER LOGIN*\n\n👤 *User:* ${data.name || '-'} (${data.email || '-'})\n🕒 *Timestamp:* ${new Date().toLocaleString('id-ID')}\n\n_Aktivitas masuk dashboard terpantau_`;
+                    break;
+                case 'PAYMENT_PENDING':
+                    message = `💳 *[DEV ALERT] - NEW PAYMENT PENDING*\n\n👤 *User:* ${data.userName || '-'}\n📦 *Paket:* ${data.packageName || '-'}\n💰 *Nominal:* Rp ${this._formatCurrency(data.amount || 0)}\n🧾 *Invoice ID:* #${data.paymentId || '-'}\n\n⚠️ Memerlukan approval Admin di Dashboard!`;
+                    break;
+                case 'PAYMENT_APPROVED':
+                    message = `✅ *[DEV ALERT] - PAYMENT APPROVED*\n\n👤 *User:* ${data.userName || '-'}\n📦 *Paket Diaktifkan:* ${data.packageName || '-'}\n⌛ *Durasi:* ${data.durationDays || '-'} Hari\n\n_Paket berhasil diaktivasi secara sistem._`;
+                    break;
+                case 'PACKAGE_EXPIRED':
+                    message = `⚠️ *[DEV ALERT] - PACKAGE EXPIRED*\n\n👤 *User:* ${data.userName || '-'}\n📱 *Phone:* ${data.phone || '-'}\n📦 *Paket Hangus:* ${data.packageName || '-'}\n\n_Sistem cron job telah menonaktifkan token / langganan user ini._`;
+                    break;
+                case 'PACKAGE_EXPIRING_SOON':
+                    message = `🕒 *[DEV ALERT] - PACKAGE EXPIRING SOON*\n\n👤 *User:* ${data.userName || '-'}\n📦 *Paket:* ${data.packageName || '-'}\n⏳ *Sisa Hari:* ${data.daysLeft || '-'} Hari\n\n_User telah dikirimi peringatan otomatis._`;
+                    break;
+                case 'EXPIRY_REMINDER_SENT':
+                    message = `📢 *[DEV ALERT] - EXPIRY REMINDER SENT*\n\n👤 *User:* ${data.userName || '-'}\n📦 *Paket:* ${data.packageName || '-'}\n⏳ *H- ${data.daysLeft || '-'}* \n\n_Notifikasi pengingat pembayaran dikirim._`;
+                    break;
+                default:
+                    message = `🔧 *[DEV ALERT] - SYSTEM EVENT*\n\n*Event:* ${event_type}\n*Data:* ${JSON.stringify(data)}`;
+            }
+
+            Logger.info('WHATSAPP_GATEWAY', `Sending DEV notification for event: ${event_type}`);
+            return await this._fetch('/api/whatsapp/main-session/send', 'POST', {
+                number: DEV_NUMBER,
+                message: message
+            });
+        } catch (error) {
+            Logger.error('WHATSAPP_GATEWAY', 'Failed to send DEV notification', error);
             return { success: false, error: error.message };
         }
     }
