@@ -349,7 +349,10 @@ _Nuansa Solution - Your Digital Partner_`;
         try {
             const options = {
                 method,
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-session-id': 'main-session'
+                },
                 signal: controller.signal
             };
 
