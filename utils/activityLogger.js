@@ -41,26 +41,37 @@ class ActivityLogger {
      * Sync data to Google Sheets
      */
     static async syncToGoogleSheets(type, data) {
-        // Format a human-readable activity description
+        // 1. Determine which sub-sheet to use
+        let targetSheet = process.env.GOOGLE_SHEET_NAME || 'Activity Logs';
+
+        if (type === 'REGISTER' || type === 'LOGIN') {
+            targetSheet = process.env.USER_LOG_SHEET_NAME || 'User Logs';
+        } else if (type.includes('PAYMENT') || type.includes('PACKAGE')) {
+            targetSheet = process.env.PAYMENT_LOG_SHEET_NAME || 'Payment Logs';
+        }
+
+        // 2. Format a human-readable activity description
         let activityDetail = '-';
         if (type.includes('PAYMENT')) {
             activityDetail = `${data.package_name || '-'} | Rp ${(data.amount || 0).toLocaleString('id-ID')}`;
+            if (data.payment_id) activityDetail += ` | ID: #${data.payment_id}`;
         } else if (type === 'REGISTER') {
             activityDetail = `Trial: ${data.trial_status || '-'}`;
         } else if (data.package_name) {
             activityDetail = data.package_name;
         }
 
+        // 3. Prepare row data
         const row = [
             data.logged_at || new Date().toISOString(),
             type,
             data.user_name || data.name || '-',
             data.phone || data.email || '-',
             activityDetail,
-            data.status || 'SUCCESS' // Use provided status or default to SUCCESS
+            data.status || 'SUCCESS'
         ];
 
-        return appendRow(row);
+        return appendRow(row, targetSheet);
     }
 }
 

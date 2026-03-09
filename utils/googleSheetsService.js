@@ -25,17 +25,18 @@ if (serviceAccountPath && spreadsheetId && spreadsheetId !== 'YOUR_SPREADSHEET_I
 /**
  * Append a row to the Google Sheet
  * @param {Array} values - Array of values to append as a row
+ * @param {string} targetSheet - Optional specific sheet name
  */
-const appendRow = async (values) => {
+const appendRow = async (values, targetSheet = null) => {
     if (!sheets) {
-        // Silently skip if not configured
         return null;
     }
 
     try {
+        const finalSheet = targetSheet || sheetName;
         const response = await sheets.spreadsheets.values.append({
             spreadsheetId: spreadsheetId,
-            range: `${sheetName}!A:Z`,
+            range: `${finalSheet}!A:Z`,
             valueInputOption: 'USER_ENTERED',
             insertDataOption: 'INSERT_ROWS',
             resource: {
@@ -44,8 +45,7 @@ const appendRow = async (values) => {
         });
         return response.data;
     } catch (error) {
-        // Logger.error('GOOGLE_SHEETS', 'Failed to append row', error);
-        console.error('❌ [GOOGLE_SHEETS] Append error:', error.message);
+        console.error(`❌ [GOOGLE_SHEETS] Append error on ${targetSheet || sheetName}:`, error.message);
         return null;
     }
 };

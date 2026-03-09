@@ -528,6 +528,7 @@ exports.adminActivatePayment = async (req, res) => {
     try {
       const connected = await waGateway.isConnected();
       if (connected) {
+        console.log(`ℹ️ [Payment] Proccesing notifications for ${payment.user_id}`);
         const [users] = await db.query(
           'SELECT name, phone FROM users WHERE id = ?',
           [payment.user_id]
@@ -561,6 +562,7 @@ exports.adminActivatePayment = async (req, res) => {
           });
 
           // Log activity to Firebase & Google Sheets
+          console.log(`ℹ️ [Payment] Logging success to ActivityLogger for ${user.name}`);
           ActivityLogger.log('PAYMENT_APPROVED', {
             user_id: payment.user_id,
             user_name: user.name,
@@ -568,10 +570,15 @@ exports.adminActivatePayment = async (req, res) => {
             amount: payment.amount,
             payment_id: paymentId,
             status: 'SUCCESS'
-          }).catch(console.error);
+          }).catch(err => console.error('❌ [ActivityLogger] Error during log:', err));
+        } else {
+          console.warn(`⚠️ [Payment] User not found for ID: ${payment.user_id}`);
         }
+      } else {
+        console.warn('⚠️ [Payment] waGateway is NOT connected, skipping notifications.');
       }
     } catch (error) {
+      console.error('❌ [Payment] Notification block error:', error);
       Logger.error('WHATSAPP', 'WhatsApp logic error', error);
     }
 
