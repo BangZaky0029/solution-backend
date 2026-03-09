@@ -11,6 +11,7 @@ const Logger = require('../utils/logger');
 // const whatsappClient = require('../utils/whatsappClient'); // DEPRECATED
 // const { WhatsAppTemplates, formatDate } = require('../utils/whatsappTemplates'); // DEPRECATED
 const waGateway = require('../utils/whatsappGateway'); // NEW GATEWAY
+const ActivityLogger = require('../utils/activityLogger'); // NEW LOGGER
 
 /**
  * ADMIN LOGIN
@@ -246,6 +247,7 @@ exports.activate = async (req, res) => {
           year: 'numeric'
         });
 
+        console.log(`ℹ️ [Admin] Sending notification to user ${payment.phone}`);
         await waGateway.sendPaymentApproved(payment.phone, {
           userName: payment.user_name,
           packageName: payment.package_name,
@@ -257,10 +259,31 @@ exports.activate = async (req, res) => {
           userId: payment.user_id,
           paymentId: payment_id
         });
+
+        // 🔥 NEW: Notify Dev
+        console.log(`ℹ️ [Admin] Sending DEV notification for ${payment.user_name}`);
+        await waGateway.sendDeveloperNotification('PAYMENT_APPROVED', {
+          userName: payment.user_name,
+          packageName: payment.package_name,
+          durationDays: payment.duration_days
+        });
+
+        // 🔥 NEW: Log activity to Firebase & Google Sheets
+        console.log(`ℹ️ [Admin] Logging success to ActivityLogger for ${payment.user_name}`);
+        ActivityLogger.log('PAYMENT_APPROVED', {
+          user_id: payment.user_id,
+          user_name: payment.user_name,
+          package_name: payment.package_name,
+          amount: payment.amount,
+          payment_id: payment_id,
+          status: 'SUCCESS'
+        }).catch(err => console.error('❌ [ActivityLogger] Error during log:', err));
+
       } else {
         Logger.warn('PAYMENT_APPROVED', 'WhatsApp gateway not connected, skipping notification');
       }
     } catch (error) {
+      console.error('❌ [Admin] Notification block error:', error);
       Logger.error('WHATSAPP', 'Failed to send payment approved notification', error);
     }
 
