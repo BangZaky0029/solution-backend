@@ -186,7 +186,7 @@ class WhatsAppGateway {
                               `👤 *Nama:* ${data.name || '-'}\n` +
                               `📧 *Email:* ${data.email || '-'}\n` +
                               `📱 *Phone:* ${data.phone || '-'}\n` +
-                              `🎁 *Trial:* ${data.trialStatus || 'Tidak Diberikan'}\n\n` +
+                              `🎁 *Trial:* ${data.trialStatus || data.trial_status || 'Tidak Diberikan'}\n\n` +
                               `📈 *Statistik Hari Ini:*\n` +
                               `• Total Registrasi: ${todayStats.total} User\n` +
                               `• Terverifikasi: ${todayStats.verified} User\n\n` +

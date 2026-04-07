@@ -195,7 +195,8 @@ exports.register = async (req, res) => {
       name,
       email,
       phone: PhoneValidator.formatDisplay(normalizedPhone),
-      trial_status: trialStatus,
+      trialStatus: trialStatus === 'granted' ? 'Diberikan (Trial)' : 
+                   trialStatus === 'denied' ? 'Ditolak (Anti-Abuse)' : 'Tidak Tersedia',
       is_verified: 0 // New users are not verified yet
     }).catch(console.error);
 
