@@ -58,6 +58,7 @@ const passwordRoutes = require('./routes/password');
 const packageRoutes = require('./routes/package');
 const userRoutes = require('./routes/user');
 const statsRoutes = require('./routes/stats');
+const financeRoutes = require('./routes/finance');
 const healthRoutes = require('./routes/health');
 const accessRoutes = require('./routes/access');
 
@@ -164,6 +165,7 @@ app.use('/api/link', linkRoutes);
 app.use('/api/packages', packageRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/stats', statsRoutes);
+app.use('/api/finance', globalLimiter, financeRoutes);
 app.use('/api/access', accessRoutes); // Access check endpoint (public)
 // app.use('/api/whatsapp', whatsappRoutes); // <-- WhatsApp route
 app.use('/health', healthRoutes);
