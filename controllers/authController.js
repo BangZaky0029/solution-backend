@@ -439,6 +439,12 @@ exports.login = async (req, res) => {
 
     Logger.auth('LOGIN_SUCCESS', `User logged in: ${user.id}`);
 
+    // Update login stats in MySQL
+    await db.query(
+      'UPDATE users SET last_login_at = NOW(), login_count = login_count + 1 WHERE id = ?',
+      [user.id]
+    );
+
     // Log activity to Firebase
     ActivityLogger.log('LOGIN', {
       user_id: user.id,

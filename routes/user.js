@@ -1,4 +1,4 @@
-﻿// ==========================================
+// ==========================================
 // routes/user.js - User Management - FINAL
 // ==========================================
 const express = require('express');
@@ -10,6 +10,9 @@ const authMiddleware = require('../middlewares/authMiddleware');
 
 // Feature Access Controller
 const featureAccessController = require('../controllers/featureAccessController');
+
+// Admin User Controller
+const adminUserController = require('../controllers/adminUserController');
 
 // ================================
 // GET CURRENT USER PROFILE
@@ -108,50 +111,10 @@ router.post(
 
 
 // ================================
-// GET ALL USERS (ADMIN) - WITH PACKAGE STATUS
+// ADMIN USER MANAGEMENT ROUTES
 // ================================
-router.get('/', adminAuth, async (req, res) => {
-  try {
-    const query = `
-      SELECT 
-        u.id,
-        u.name,
-        u.email,
-        u.phone,
-        u.is_verified,
-        u.created_at,
-
-        ut.package_id,
-        p.name AS package_name,
-        ut.expired_at,
-        ut.is_active
-
-      FROM users u
-      LEFT JOIN user_tokens ut 
-        ON ut.user_id = u.id
-        AND ut.is_active = 1
-        AND ut.expired_at > NOW()
-
-      LEFT JOIN packages p 
-        ON p.id = ut.package_id
-
-      ORDER BY u.created_at DESC
-    `;
-
-    const [rows] = await db.query(query);
-
-    res.json({
-      success: true,
-      data: rows
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
+router.get('/', adminAuth, adminUserController.getAllUsers);
+router.get('/:id', adminAuth, adminUserController.getUserDetail);
 
 
 module.exports = router;

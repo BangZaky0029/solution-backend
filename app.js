@@ -94,7 +94,8 @@ const allowedOrigins = [
   process.env.CLIENT_URL,
   process.env.PAYMENT_URL, // Pastikan ini juga dipanggil
   'http://localhost:3000',
-  'http://localhost:5173'
+  'http://localhost:5173',
+  'http://localhost:5174'
 ].filter(Boolean);
 
 app.use(cors({
