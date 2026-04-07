@@ -189,38 +189,15 @@ exports.register = async (req, res) => {
       trialStatus: trialStatus // 'granted', 'denied', 'unavailable'
     };
 
-    // Log activity to Firebase
+    // Log activity (Centralized: Handles Firebase, Sheets, and WhatsApp)
     ActivityLogger.log('REGISTER', {
-      user_id: user.id || null,
+      user_id: userId || null,
       name,
       email,
       phone: PhoneValidator.formatDisplay(normalizedPhone),
-      trial_status: trialStatus
+      trial_status: trialStatus,
+      is_verified: 0 // New users are not verified yet
     }).catch(console.error);
-
-    // Send developer notification
-    try {
-      waGateway.isConnected().then(connected => {
-        if (connected) {
-          waGateway.sendDeveloperNotification('REGISTER', {
-            name,
-            email,
-            phone: PhoneValidator.formatDisplay(normalizedPhone),
-            trialStatus: trialStatus === 'granted' ?
-              (trialPackages.length > 0 ? `Diberikan (${trialPackages[0].duration_days} Hari - ${trialPackages[0].name})` : 'Diberikan')
-              : 'Tidak Diberikan'
-          }).catch(console.error);
-        }
-      }).catch(console.error);
-    } catch (err) {
-      Logger.error('WHATSAPP', 'Dev Notification (Register) failed', err);
-    }
-
-    // 🔍 DEBUG LOG - Pastikan OTP di-return
-    console.log('========================================');
-    console.log('📤 RESPONSE TO FRONTEND:');
-    console.log(JSON.stringify(responseData, null, 2));
-    console.log('========================================');
 
     return res.status(200).json(responseData);
 
@@ -445,26 +422,13 @@ exports.login = async (req, res) => {
       [user.id]
     );
 
-    // Log activity to Firebase
+    // Log activity (Centralized: Handles Firebase, Sheets, and WhatsApp)
     ActivityLogger.log('LOGIN', {
       user_id: user.id,
       name: user.name,
-      email: user.email
+      email: user.email,
+      is_verified: user.is_verified
     }).catch(console.error);
-
-    // Send developer notification
-    try {
-      waGateway.isConnected().then(connected => {
-        if (connected) {
-          waGateway.sendDeveloperNotification('LOGIN', {
-            name: user.name,
-            email: user.email
-          }).catch(console.error);
-        }
-      }).catch(console.error);
-    } catch (err) {
-      Logger.error('WHATSAPP', 'Dev Notification (Login) failed', err);
-    }
 
     return res.status(200).json({
       success: true,
@@ -681,5 +645,37 @@ exports.deleteAccount = async (req, res) => {
     });
   } finally {
     if (connection) connection.release();
+  }
+};
+
+/**
+ * LOGOUT
+ * POST /api/auth/logout
+ */
+exports.logout = async (req, res) => {
+  try {
+    const { id, name, email } = req.user;
+
+    Logger.auth('LOGOUT', `User logged out: ${id}`);
+
+    // Log activity (Sheets only, per user feedback) - Centralized
+    const ActivityLogger = require('../utils/activityLogger');
+    ActivityLogger.log('LOGOUT', {
+      user_id: id,
+      name: name,
+      email: email,
+      status: 'LOGOUT_SUCCESS'
+    }, false).catch(console.error);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Logout berhasil'
+    });
+  } catch (error) {
+    Logger.error('AUTH', 'Logout error', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal logout'
+    });
   }
 };

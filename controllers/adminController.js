@@ -255,25 +255,13 @@ exports.activate = async (req, res) => {
           expiryDate: expiryDateStr
         });
 
-        Logger.whatsapp('PAYMENT_APPROVED', `Notification sent to ${payment.phone}`, {
-          userId: payment.user_id,
-          paymentId: payment_id
-        });
-
-        // 🔥 NEW: Notify Dev
-        console.log(`ℹ️ [Admin] Sending DEV notification for ${payment.user_name}`);
-        await waGateway.sendDeveloperNotification('PAYMENT_APPROVED', {
-          userName: payment.user_name,
-          packageName: payment.package_name,
-          durationDays: payment.duration_days
-        });
-
-        // 🔥 NEW: Log activity to Firebase & Google Sheets
-        console.log(`ℹ️ [Admin] Logging success to ActivityLogger for ${payment.user_name}`);
+        // Log activity (Centralized: Handles Firebase, Sheets, and WhatsApp Dashboard/Dev Notification)
         ActivityLogger.log('PAYMENT_APPROVED', {
           user_id: payment.user_id,
           user_name: payment.user_name,
+          user_phone: payment.phone,
           package_name: payment.package_name,
+          durationDays: payment.duration_days,
           amount: payment.amount,
           payment_id: payment_id,
           status: 'SUCCESS'

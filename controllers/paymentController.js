@@ -206,15 +206,7 @@ exports.confirm = [
               invoice_id: `#${payment_id}`
             });
 
-            // Notify Dev
-            await waGateway.sendDeveloperNotification('PAYMENT_PENDING', {
-              userName: user.name,
-              packageName: payment.package_name,
-              amount: payment.amount,
-              paymentId: payment_id
-            });
-
-            // Log activity to Firebase & Google Sheets
+            // Log activity (Centralized: Handles Firebase, Sheets, and WhatsApp Dashboard/Dev Notification)
             ActivityLogger.log('PAYMENT_PENDING', {
               user_id: payment.user_id,
               user_name: user.name,
@@ -549,24 +541,13 @@ exports.adminActivatePayment = async (req, res) => {
             expiryDate: expiryDateStr
           });
 
-          Logger.whatsapp('PAYMENT_APPROVED', `Notification queued for ${user.phone}`, {
-            userId: payment.user_id,
-            paymentId
-          });
-
-          // Notify Dev
-          await waGateway.sendDeveloperNotification('PAYMENT_APPROVED', {
-            userName: user.name,
-            packageName: payment.package_name,
-            durationDays: payment.duration_days
-          });
-
-          // Log activity to Firebase & Google Sheets
-          console.log(`ℹ️ [Payment] Logging success to ActivityLogger for ${user.name}`);
+          // Log activity (Centralized: Handles Firebase, Sheets, and WhatsApp Dashboard/Dev Notification)
           ActivityLogger.log('PAYMENT_APPROVED', {
             user_id: payment.user_id,
             user_name: user.name,
+            user_phone: user.phone,
             package_name: payment.package_name,
+            durationDays: payment.duration_days,
             amount: payment.amount,
             payment_id: paymentId,
             status: 'SUCCESS'
