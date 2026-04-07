@@ -147,9 +147,44 @@ const getYearlySummary = async () => {
     }
 };
 
+/**
+ * Get global cumulative statistics
+ */
+const getGlobalStats = async () => {
+    try {
+        const userQuery = `
+            SELECT 
+                COUNT(*) as total_users,
+                SUM(CASE WHEN is_verified = 1 THEN 1 ELSE 0 END) as total_verified
+            FROM users
+        `;
+        const activeTokenQuery = `
+            SELECT 
+                COUNT(*) as active_now,
+                SUM(CASE WHEN DATE(activated_at) = CURDATE() THEN 1 ELSE 0 END) as activated_today
+            FROM user_tokens
+            WHERE is_active = 1
+        `;
+
+        const [[users]] = await db.query(userQuery);
+        const [[tokens]] = await db.query(activeTokenQuery);
+
+        return {
+            totalUsers: users.total_users || 0,
+            totalVerified: users.total_verified || 0,
+            activeNow: tokens.active_now || 0,
+            activatedToday: tokens.activated_today || 0
+        };
+    } catch (error) {
+        console.error('Error fetching global stats:', error);
+        return { totalUsers: 0, totalVerified: 0, activeNow: 0, activatedToday: 0 };
+    }
+};
+
 module.exports = {
     getDailyGrowth,
     getDailyFinance,
+    getGlobalStats,
     getWeeklySummary,
     getMonthlySummary,
     getYearlySummary

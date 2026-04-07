@@ -36,7 +36,41 @@ const initAnalyticCron = () => {
         }
     });
 
-    // 2. MONTHLY REPORT - Every 1st of the Month at 08:05 AM
+    // 2. DAILY RECAP - Every day at 23:59 PM
+    cron.schedule('59 23 * * *', async () => {
+        Logger.info('CRON', 'Running Daily Recap Analytic Report');
+        try {
+            const todayGrowth = await statsHelper.getDailyGrowth();
+            const todayFinance = await statsHelper.getDailyFinance();
+            const globalStats = await statsHelper.getGlobalStats();
+
+            if (!todayGrowth || !globalStats) return;
+
+            const message = `🌙 *[DAILY RECAP] - STATUS PLATFORM*\n` +
+                            `----------------------------------\n` +
+                            `📅 *Tanggal:* ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}\n\n` +
+                            `📈 *Pertumbuhan Hari Ini:*\n` +
+                            `• Registrasi Baru: ${todayGrowth.total} User\n` +
+                            `• Terverifikasi: ${todayGrowth.verified} User\n` +
+                            `• Paket Dibeli: ${todayFinance.count} Transaksi\n\n` +
+                            `⚡ *Status Aktivitas:* \n` +
+                            `• Paket Aktif Harian: ${globalStats.activatedToday} User\n` +
+                            `• Total User Aktif (Global): ${globalStats.activeNow} User\n\n` +
+                            `👥 *Akumulasi User (All-Time):*\n` +
+                            `• Total User Terdaftar: ${globalStats.totalUsers.toLocaleString('id-ID')} User\n` +
+                            `• Total User Terverifikasi: ${globalStats.totalVerified.toLocaleString('id-ID')} User\n\n` +
+                            `🕒 *Waktu Laporan:* 23:59 WIB\n` +
+                            `----------------------------------\n` +
+                            `_Laporan performa & kesehatan sistem_`;
+
+            await waGateway._fetch('/api/whatsapp/main-session/notify/developer', 'POST', { message });
+            Logger.info('CRON', 'Daily Recap Sent');
+        } catch (error) {
+            Logger.error('CRON', 'Daily Recap Failed', error);
+        }
+    });
+
+    // 3. MONTHLY REPORT - Every 1st of the Month at 08:05 AM
     cron.schedule('5 8 1 * *', async () => {
         Logger.info('CRON', 'Running Monthly Analytic Report');
         try {
