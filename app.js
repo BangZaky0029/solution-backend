@@ -14,8 +14,10 @@ require('./utils/cron');
 
 // Initialize subscription reminder cron (daily 9:00 AM)
 const subscriptionCron = require('./cron/subscriptionCron');
+const analyticCron = require('./cron/analyticReports');
 if (process.env.WHATSAPP_ENABLED === 'true') {
   subscriptionCron.initCron();
+  analyticCron.initAnalyticCron();
 }
 
 // 🟢 AUTO MIGRATION (TEMPORARY)

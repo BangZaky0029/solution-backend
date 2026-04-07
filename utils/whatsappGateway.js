@@ -13,6 +13,7 @@
 
 const Logger = require('./logger');
 const PhoneValidator = require('./phoneValidator');
+const statsHelper = require('./statsHelper');
 
 // Gateway configuration - use getters for lazy evaluation
 const GATEWAY_TIMEOUT = 10000; // 10 seconds
@@ -166,23 +167,34 @@ class WhatsAppGateway {
     }
 
     /**
-     * Send Developer Notification (081995770190)
+     * Send Developer Notification (Broadcast to multiple numbers/groups)
      * @param {string} event_type - Type of event
      * @param {object} data - Data to format into the message
      */
     async sendDeveloperNotification(event_type, data) {
         if (!this.enabled) return { success: false, reason: 'disabled' };
 
-        const DEV_NUMBER = process.env.DEVELOPER_WA_NUMBER || '6281995770190';
         let message = '';
+        const logsLink = "\n\n📊 *Full Logs:* https://docs.google.com/spreadsheets/d/1RmkiCW4zRe7DrBSHfCyKZBM1TChHyYYZDBR-p2AB5nY/edit?gid=0#gid=0";
 
         try {
-            const logsLink = "\n\n📊 *Full Logs:* https://docs.google.com/spreadsheets/d/1RmkiCW4zRe7DrBSHfCyKZBM1TChHyYYZDBR-p2AB5nY/edit?gid=0#gid=0";
-
             switch (event_type) {
-                case 'REGISTER':
-                    message = `🚀 *[DEV ALERT] - NEW USER REGISTERED*\n\n👤 *Nama:* ${data.name || '-'}\n📧 *Email:* ${data.email || '-'}\n📱 *Phone:* ${data.phone || '-'}\n\n🎁 *Status Trial:* ${data.trialStatus || 'Tidak Diberikan'}\n🕒 *Timestamp:* ${new Date().toLocaleString('id-ID')}\n\n_Sistem memantau pendaftaran user baru_` + logsLink;
+                case 'REGISTER': {
+                    const todayStats = await statsHelper.getDailyGrowth();
+                    message = `🚀 *[GROWTH ALERT] - USER BARU*\n` +
+                              `----------------------------------\n` +
+                              `👤 *Nama:* ${data.name || '-'}\n` +
+                              `📧 *Email:* ${data.email || '-'}\n` +
+                              `📱 *Phone:* ${data.phone || '-'}\n` +
+                              `🎁 *Trial:* ${data.trialStatus || 'Tidak Diberikan'}\n\n` +
+                              `📈 *Statistik Hari Ini:*\n` +
+                              `• Total Registrasi: ${todayStats.total} User\n` +
+                              `• Terverifikasi: ${todayStats.verified} User\n\n` +
+                              `🕒 *Waktu:* ${new Date().toLocaleString('id-ID')}\n` +
+                              `----------------------------------\n` +
+                              `_Sent via Nuansa Admin - main-session_` + logsLink;
                     break;
+                }
                 case 'LOGIN':
                     message = `🔑 *[DEV ALERT] - USER LOGIN*\n\n👤 *User:* ${data.name || '-'} (${data.email || '-'})\n🕒 *Timestamp:* ${new Date().toLocaleString('id-ID')}\n\n_Aktivitas masuk dashboard terpantau_` + logsLink;
                     break;
@@ -205,13 +217,12 @@ class WhatsAppGateway {
                     message = `🔧 *[DEV ALERT] - SYSTEM EVENT*\n\n*Event:* ${event_type}\n*Data:* ${JSON.stringify(data)}` + logsLink;
             }
 
-            Logger.info('WHATSAPP_GATEWAY', `Sending DEV notification for event: ${event_type}`);
-            return await this._fetch('/api/whatsapp/main-session/send', 'POST', {
-                number: DEV_NUMBER,
+            Logger.info('WHATSAPP_GATEWAY', `Sending Broadcast DEV notification for event: ${event_type}`);
+            return await this._fetch('/api/whatsapp/main-session/notify/developer', 'POST', {
                 message: message
             });
         } catch (error) {
-            Logger.error('WHATSAPP_GATEWAY', 'Failed to send DEV notification', error);
+            Logger.error('WHATSAPP_GATEWAY', 'Failed to send Broadcast DEV notification', error);
             return { success: false, error: error.message };
         }
     }
