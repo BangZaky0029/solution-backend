@@ -11,29 +11,30 @@ exports.getAllUsers = async (req, res) => {
   try {
     const query = `
       SELECT 
-        u.id,
-        u.name,
-        u.email,
-        u.phone,
-        u.is_verified,
-        u.created_at,
-        u.last_login_at,
+        u.id, 
+        u.name, 
+        u.email, 
+        u.phone, 
+        u.is_verified, 
+        u.created_at, 
+        u.last_login_at, 
         u.login_count,
 
-        ut.package_id,
-        p.name AS package_name,
-        ut.expired_at,
-        ut.is_active
+        (SELECT p.name FROM user_tokens ut 
+         JOIN packages p ON p.id = ut.package_id 
+         WHERE ut.user_id = u.id AND ut.is_active = 1 AND ut.expired_at > NOW() 
+         ORDER BY ut.expired_at DESC LIMIT 1) as package_name,
+
+        (SELECT ut.expired_at FROM user_tokens ut 
+         WHERE ut.user_id = u.id AND ut.is_active = 1 AND ut.expired_at > NOW() 
+         ORDER BY ut.expired_at DESC LIMIT 1) as expired_at,
+
+        CASE 
+          WHEN EXISTS (SELECT 1 FROM user_tokens ut WHERE ut.user_id = u.id AND ut.is_active = 1 AND ut.expired_at > NOW()) 
+          THEN 1 ELSE 0 
+        END as is_active
 
       FROM users u
-      LEFT JOIN user_tokens ut 
-        ON ut.user_id = u.id
-        AND ut.is_active = 1
-        AND ut.expired_at > NOW()
-
-      LEFT JOIN packages p 
-        ON p.id = ut.package_id
-
       ORDER BY u.created_at DESC
     `;
 
@@ -45,9 +46,10 @@ exports.getAllUsers = async (req, res) => {
     });
 
   } catch (error) {
+    console.error('[ADMIN_USER_ERROR]', error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: 'Internal Server Error: ' + error.message
     });
   }
 };
@@ -99,9 +101,10 @@ exports.getUserDetail = async (req, res) => {
     });
 
   } catch (error) {
+    console.error('[ADMIN_DETAIL_ERROR]', error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: 'Internal Server Error: ' + error.message
     });
   }
 };

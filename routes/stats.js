@@ -93,4 +93,79 @@ router.get('/activities', adminAuth, async (req, res) => {
   }
 });
 
+// GET user registration growth
+router.get('/user-growth', adminAuth, async (req, res) => {
+  try {
+    const { period = 'daily' } = req.query;
+    let format = '%Y-%m-%d';
+    let interval = '30 DAY';
+
+    if (period === 'weekly') {
+      format = '%Y-%u'; // Year-WeekNumber
+      interval = '12 WEEK';
+    } else if (period === 'monthly') {
+      format = '%Y-%m';
+      interval = '12 MONTH';
+    } else if (period === 'yearly') {
+      format = '%Y';
+      interval = '5 YEAR';
+    }
+
+    const query = `
+      SELECT 
+        DATE_FORMAT(created_at, ?) as label,
+        COUNT(*) as count
+      FROM users
+      WHERE created_at >= DATE_SUB(NOW(), INTERVAL ${interval})
+      GROUP BY label
+      ORDER BY label ASC
+    `;
+
+    const [rows] = await db.query(query, [format]);
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// GET payment methods distribution
+router.get('/payment-methods', adminAuth, async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        payment_method as name,
+        COUNT(*) as value
+      FROM payments
+      WHERE status = 'confirmed'
+      GROUP BY payment_method
+    `;
+
+    const [rows] = await db.query(query);
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// GET package popularity
+router.get('/package-popularity', adminAuth, async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        pk.name,
+        COUNT(*) as count
+      FROM payments p
+      JOIN packages pk ON pk.id = p.package_id
+      WHERE p.status = 'confirmed'
+      GROUP BY pk.id
+      ORDER BY count DESC
+    `;
+
+    const [rows] = await db.query(query);
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 module.exports = router;
