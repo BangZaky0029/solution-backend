@@ -172,59 +172,10 @@ class WhatsAppGateway {
      * @param {object} data - Data to format into the message
      */
     async sendDeveloperNotification(event_type, data) {
-        if (!this.enabled) return { success: false, reason: 'disabled' };
-
-        let message = '';
-        const logsLink = "\n\n📊 *Full Logs:* https://docs.google.com/spreadsheets/d/1RmkiCW4zRe7DrBSHfCyKZBM1TChHyYYZDBR-p2AB5nY/edit?gid=0#gid=0";
-
-        try {
-            switch (event_type) {
-                case 'REGISTER': {
-                    const todayStats = await statsHelper.getDailyGrowth();
-                    message = `🚀 *[GROWTH ALERT] - USER BARU*\n` +
-                              `----------------------------------\n` +
-                              `👤 *Nama:* ${data.name || '-'}\n` +
-                              `📧 *Email:* ${data.email || '-'}\n` +
-                              `📱 *Phone:* ${data.phone || '-'}\n` +
-                              `🎁 *Trial:* ${data.trialStatus || data.trial_status || 'Tidak Diberikan'}\n\n` +
-                              `📈 *Statistik Hari Ini:*\n` +
-                              `• Total Registrasi: ${todayStats.total} User\n` +
-                              `• Terverifikasi: ${todayStats.verified} User\n\n` +
-                              `🕒 *Waktu:* ${new Date().toLocaleString('id-ID')}\n` +
-                              `----------------------------------\n` +
-                              `_Sent via Nuansa Admin - main-session_` + logsLink;
-                    break;
-                }
-                case 'LOGIN':
-                    message = `🔑 *[DEV ALERT] - USER LOGIN*\n\n👤 *User:* ${data.name || '-'} (${data.email || '-'})\n🕒 *Timestamp:* ${new Date().toLocaleString('id-ID')}\n\n_Aktivitas masuk dashboard terpantau_` + logsLink;
-                    break;
-                case 'PAYMENT_PENDING':
-                    message = `💳 *[DEV ALERT] - NEW PAYMENT PENDING*\n\n👤 *User:* ${data.userName || '-'}\n📦 *Paket:* ${data.packageName || '-'}\n💰 *Nominal:* Rp ${this._formatCurrency(data.amount || 0)}\n🧾 *Invoice ID:* #${data.paymentId || '-'}\n\n⚠️ Memerlukan approval Admin di Dashboard!` + logsLink;
-                    break;
-                case 'PAYMENT_APPROVED':
-                    message = `✅ *[DEV ALERT] - PAYMENT APPROVED*\n\n👤 *User:* ${data.userName || '-'}\n📦 *Paket Diaktifkan:* ${data.packageName || '-'}\n⌛ *Durasi:* ${data.durationDays || '-'} Hari\n\n_Paket berhasil diaktivasi secara sistem._` + logsLink;
-                    break;
-                case 'PACKAGE_EXPIRED':
-                    message = `⚠️ *[DEV ALERT] - PACKAGE EXPIRED*\n\n👤 *User:* ${data.userName || '-'}\n📱 *Phone:* ${data.phone || '-'}\n📦 *Paket Hangus:* ${data.packageName || '-'}\n\n_Sistem cron job telah menonaktifkan token / langganan user ini._` + logsLink;
-                    break;
-                case 'PACKAGE_EXPIRING_SOON':
-                    message = `🕒 *[DEV ALERT] - PACKAGE EXPIRING SOON*\n\n👤 *User:* ${data.userName || '-'}\n📦 *Paket:* ${data.packageName || '-'}\n⏳ *Sisa Hari:* ${data.daysLeft || '-'} Hari\n\n_User telah dikirimi peringatan otomatis._` + logsLink;
-                    break;
-                case 'EXPIRY_REMINDER_SENT':
-                    message = `📢 *[DEV ALERT] - EXPIRY REMINDER SENT*\n\n👤 *User:* ${data.userName || '-'}\n📦 *Paket:* ${data.packageName || '-'}\n⏳ *H- ${data.daysLeft || '-'}* \n\n_Notifikasi pengingat pembayaran dikirim._` + logsLink;
-                    break;
-                default:
-                    message = `🔧 *[DEV ALERT] - SYSTEM EVENT*\n\n*Event:* ${event_type}\n*Data:* ${JSON.stringify(data)}` + logsLink;
-            }
-
-            Logger.info('WHATSAPP_GATEWAY', `Sending Broadcast DEV notification for event: ${event_type}`);
-            return await this._fetch('/api/whatsapp/main-session/notify/developer', 'POST', {
-                message: message
-            });
-        } catch (error) {
-            Logger.error('WHATSAPP_GATEWAY', 'Failed to send Broadcast DEV notification', error);
-            return { success: false, error: error.message };
-        }
+        // Disabled by USER: Real-time Developer Alerts (REGISTER, LOGIN, etc.) are now removed
+        // to reduce noise. Reports (Daily/Weekly/Monthly/Yearly) remain functional.
+        Logger.info('WHATSAPP_GATEWAY', `Real-time developer alert suppressed: ${event_type}`);
+        return { success: true, message: 'Developer alert suppressed by configuration' };
     }
 
     // ============================================
