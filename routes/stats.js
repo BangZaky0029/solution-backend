@@ -114,7 +114,8 @@ router.get('/user-growth', adminAuth, async (req, res) => {
     const query = `
       SELECT 
         DATE_FORMAT(created_at, ?) as label,
-        COUNT(*) as count
+        COUNT(*) as total,
+        SUM(CASE WHEN is_verified = 1 THEN 1 ELSE 0 END) as verified
       FROM users
       WHERE created_at >= DATE_SUB(NOW(), INTERVAL ${interval})
       GROUP BY label
