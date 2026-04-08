@@ -445,7 +445,7 @@ exports.me = async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     const [users] = await db.query(
-      'SELECT id, name, email, phone, is_verified FROM users WHERE id = ?',
+      'SELECT id, name, email, phone, is_verified, is_phone_verified, google_id, avatar_url, password FROM users WHERE id = ?',
       [decoded.id]
     );
 
