@@ -605,7 +605,14 @@ exports.deleteAccount = async (req, res) => {
       // 2. Delete OTP Verifications
       await connection.query('DELETE FROM otp_verifications WHERE user_id = ?', [userId]);
 
-      // 3. Delete Payment Confirmations (via Payments)
+      // 3. Delete Acquisition & Feedback (Survey Data)
+      await connection.query('DELETE FROM user_acquisition WHERE user_id = ?', [userId]);
+      await connection.query('DELETE FROM user_feedback WHERE user_id = ?', [userId]);
+
+      // 4. Delete Feature Subscriptions
+      await connection.query('DELETE FROM user_subscriptions WHERE user_id = ?', [userId]);
+
+      // 5. Delete Payment Confirmations (via Payments)
       const [payments] = await connection.query('SELECT id FROM payments WHERE user_id = ?', [userId]);
       const paymentIds = payments.map(p => p.id);
 
@@ -616,14 +623,15 @@ exports.deleteAccount = async (req, res) => {
         );
       }
 
-      // 4. Delete Payments
+      // 6. Delete Payments
       await connection.query('DELETE FROM payments WHERE user_id = ?', [userId]);
 
-      // 5. Delete User Tokens (Packages)
+      // 7. Delete User Tokens (Packages)
       await connection.query('DELETE FROM user_tokens WHERE user_id = ?', [userId]);
 
-      // 6. Delete User
+      // 8. Final: Delete User Record
       await connection.query('DELETE FROM users WHERE id = ?', [userId]);
+
 
       await connection.commit();
       Logger.auth('DELETE_ACCOUNT_SUCCESS', `User deleted permanently: ${userId}`);

@@ -63,6 +63,8 @@ const statsRoutes = require('./routes/stats');
 const financeRoutes = require('./routes/finance');
 const healthRoutes = require('./routes/health');
 const accessRoutes = require('./routes/access');
+const surveyRoutes = require('./routes/surveys');
+
 
 const app = express();
 
@@ -117,7 +119,8 @@ app.use(cors({
     callback(new Error('CORS not allowed'));
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS']
+
 }));
 
 // Rate limiting - Global
@@ -170,7 +173,9 @@ app.use('/api/stats', statsRoutes);
 app.use('/api/finance', globalLimiter, financeRoutes);
 app.use('/api/access', accessRoutes); // Access check endpoint (public)
 // app.use('/api/whatsapp', whatsappRoutes); // <-- WhatsApp route
+app.use('/api/surveys', surveyRoutes);
 app.use('/health', healthRoutes);
+
 
 // ================================
 // ROOT
