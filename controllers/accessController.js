@@ -100,26 +100,36 @@ exports.checkAccess = async (req, res) => {
             });
         }
 
-        // 4. Check user_subscriptions for active subscription
-        const [subscriptions] = await db.query(
-            `SELECT id, expired_at
-       FROM user_subscriptions
-       WHERE user_id = ?
-         AND feature_id = ?
-         AND is_active = 1
-         AND expired_at > NOW()
-       LIMIT 1`,
-            [userId, feature.id]
+        // 4. Check access in both user_subscriptions OR user_tokens (for trials/packages)
+        const [accessRecords] = await db.query(
+            `
+            SELECT id, expired_at FROM (
+                -- Check direct subscriptions
+                SELECT id, expired_at 
+                FROM user_subscriptions 
+                WHERE user_id = ? AND feature_id = ? AND is_active = 1 AND expired_at > NOW()
+                
+                UNION ALL
+                
+                -- Check via user_tokens (important for Trials and holistic packages)
+                SELECT ut.id, ut.expired_at
+                FROM user_tokens ut
+                JOIN package_features pf ON pf.package_id = ut.package_id
+                WHERE ut.user_id = ? AND pf.feature_id = ? AND ut.is_active = 1 AND ut.expired_at > NOW()
+            ) AS combined_access
+            LIMIT 1
+            `,
+            [userId, feature.id, userId, feature.id]
         );
 
-        if (subscriptions.length > 0) {
-            const expiredAt = new Date(subscriptions[0].expired_at);
+        if (accessRecords.length > 0) {
+            const expiredAt = new Date(accessRecords[0].expired_at);
             Logger.info('ACCESS', `Access granted: user=${userId}, feature=${feature_slug}, expires=${expiredAt}`);
 
             return res.json({
                 status: true,
                 message: 'Access granted',
-                expired_at: subscriptions[0].expired_at
+                expired_at: accessRecords[0].expired_at
             });
         }
 
@@ -208,14 +218,25 @@ exports.checkMultipleAccess = async (req, res) => {
             [feature_slugs]
         );
 
-        // Get user's active subscriptions
+        // Get user's active feature IDs from both tables
         const [subscriptions] = await db.query(
-            `SELECT feature_id
-       FROM user_subscriptions
-       WHERE user_id = ?
-         AND is_active = 1
-         AND expired_at > NOW()`,
-            [userId]
+            `
+            SELECT feature_id FROM (
+                -- From direct subscriptions
+                SELECT feature_id 
+                FROM user_subscriptions 
+                WHERE user_id = ? AND is_active = 1 AND expired_at > NOW()
+                
+                UNION
+                
+                -- From user_tokens (Trials and packages)
+                SELECT pf.feature_id
+                FROM user_tokens ut
+                JOIN package_features pf ON pf.package_id = ut.package_id
+                WHERE ut.user_id = ? AND ut.is_active = 1 AND ut.expired_at > NOW()
+            ) AS combined_features
+            `,
+            [userId, userId]
         );
 
         const activeFeatureIds = new Set(subscriptions.map(s => s.feature_id));
