@@ -156,7 +156,7 @@ exports.getFeedbackList = async (req, res) => {
     const query = `
       SELECT 
         f.id, f.user_id, f.rating, f.comment, f.admin_reply, f.admin_reply_at, f.is_hidden, f.updated_at,
-        u.name as user_name, u.email as user_email
+        u.name as user_name, u.email as user_email, u.avatar_url
       FROM user_feedback f
       JOIN users u ON u.id = f.user_id
       ORDER BY f.updated_at DESC
@@ -269,7 +269,7 @@ exports.getPublicFeedbacks = async (req, res) => {
     const query = `
       SELECT 
         f.id, f.rating, f.comment, f.admin_reply, f.admin_reply_at, f.updated_at,
-        u.name as user_name
+        u.name as user_name, u.avatar_url
       FROM user_feedback f
       JOIN users u ON u.id = f.user_id
       WHERE (f.comment IS NOT NULL AND f.comment != '') AND f.is_hidden = 0
