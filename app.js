@@ -65,6 +65,10 @@ const healthRoutes = require('./routes/health');
 const accessRoutes = require('./routes/access');
 const surveyRoutes = require('./routes/surveys');
 
+// Passport Config
+const passport = require('./config/passport');
+const session = require('express-session');
+
 
 const app = express();
 
@@ -156,6 +160,21 @@ app.use(globalLimiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// 🔐 SESSION & PASSPORT INITIALIZATION
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'nuansa_session_secret_2024',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 10 * 60 * 1000 // 10 minutes session for OAuth handshake
+  }
+}));
+
+app.use(passport.initialize());
+app.use(passport.session());
+
 app.use(requestLogger);
 
 // ================================
@@ -175,6 +194,34 @@ app.use('/api/access', accessRoutes); // Access check endpoint (public)
 // app.use('/api/whatsapp', whatsappRoutes); // <-- WhatsApp route
 app.use('/api/surveys', surveyRoutes);
 app.use('/health', healthRoutes);
+
+// ================================
+// GOOGLE OAUTH ROUTES (MATCHING REDIRECT URI)
+// ================================
+app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+
+app.get('/auth/google/callback', 
+  passport.authenticate('google', { failureRedirect: process.env.CLIENT_URL + '/login?error=auth_failed' }),
+  (req, res) => {
+    // Auth Successful
+    const user = req.user;
+    const jwt = require('jsonwebtoken');
+    
+    // Generate JWT
+    const token = jwt.sign(
+      {
+        id: user.id,
+        email: user.email,
+        role: 'user'
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    // Redirect to frontend with token
+    res.redirect(`${process.env.CLIENT_URL}/auth/google/success?token=${token}`);
+  }
+);
 
 
 // ================================
