@@ -645,7 +645,7 @@ exports.requestPhoneVerifyOTP = async (req, res) => {
     }
 
     const phoneValidation = PhoneValidator.validate(phone);
-    if (!phoneValidation.isValid) {
+    if (!phoneValidation.valid) {
       return res.status(400).json({ success: false, message: phoneValidation.message });
     }
 
@@ -656,7 +656,7 @@ exports.requestPhoneVerifyOTP = async (req, res) => {
 
     const { otp } = await OTPValidator.createOTP(userId, 'phone_verify');
     const message = `Halo! Kode verifikasi WhatsApp Anda adalah: *${otp}*. Kode ini berlaku selama 90 detik. Jangan bagikan kode ini kepada siapapun! @nuansasolution`;
-    await waGateway.sendNotification(phone, message);
+    await waGateway.sendMessage(phone, message);
 
     Logger.auth('OTP_PHONE_VERIFY_SENT', `OTP sent to ${phone} for user ${userId}`);
     return res.status(200).json({ success: true, message: 'Kode OTP telah dikirim ke WhatsApp Anda' });
