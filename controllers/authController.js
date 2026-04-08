@@ -649,9 +649,9 @@ exports.requestPhoneVerifyOTP = async (req, res) => {
       return res.status(400).json({ success: false, message: phoneValidation.message });
     }
 
-    const limitCheck = await OTPValidator.checkRateLimit(userId);
-    if (limitCheck.limited) {
-      return res.status(429).json({ success: false, message: limitCheck.message });
+    const dailyLimit = await OTPValidator.checkDailyLimit(userId, 'phone_verify');
+    if (dailyLimit.limited) {
+      return res.status(429).json({ success: false, message: dailyLimit.message });
     }
 
     const { otp } = await OTPValidator.createOTP(userId, 'phone_verify');

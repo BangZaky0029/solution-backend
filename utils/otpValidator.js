@@ -120,6 +120,35 @@ const OTPValidator = {
       Logger.error('OTP', 'Failed to check rate limit', error);
       throw error;
     }
+  },
+
+  /**
+   * Check OTP Daily limit (Strict 1 request per 24 hours)
+   */
+  checkDailyLimit: async (userId, type = 'phone_verify') => {
+    try {
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+      const [rows] = await db.query(
+        `SELECT COUNT(*) as count
+         FROM otp_verifications
+         WHERE user_id = ? AND type = ? AND created_at > ?`,
+        [userId, type, twentyFourHoursAgo]
+      );
+
+      if (rows[0].count >= 1) {
+        Logger.auth('OTP_DAILY_LIMIT', `Daily limit reached for user ${userId}, type: ${type}`);
+        return {
+          limited: true,
+          message: 'Batas harian tercapai. Anda hanya dapat meminta 1 kode OTP setiap 24 jam. Silakan coba lagi besok.'
+        };
+      }
+
+      return { limited: false };
+    } catch (error) {
+      Logger.error('OTP', 'Failed to check daily limit', error);
+      throw error;
+    }
   }
 };
 
