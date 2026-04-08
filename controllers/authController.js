@@ -632,6 +632,104 @@ exports.deleteAccount = async (req, res) => {
 };
 
 /**
+ * REQUEST PHONE VERIFICATION OTP
+ * POST /api/auth/request-phone-verify
+ */
+exports.requestPhoneVerifyOTP = async (req, res) => {
+  try {
+    const { phone } = req.body;
+    const userId = req.user.id;
+
+    if (!phone) {
+      return res.status(400).json({ success: false, message: 'Nomor WhatsApp diperlukan' });
+    }
+
+    const phoneValidation = PhoneValidator.validate(phone);
+    if (!phoneValidation.isValid) {
+      return res.status(400).json({ success: false, message: phoneValidation.message });
+    }
+
+    const limitCheck = await OTPValidator.checkRateLimit(userId);
+    if (limitCheck.limited) {
+      return res.status(429).json({ success: false, message: limitCheck.message });
+    }
+
+    const { otp } = await OTPValidator.createOTP(userId, 'phone_verify');
+    const message = `Halo! Kode verifikasi WhatsApp Anda adalah: *${otp}*. Kode ini berlaku selama 90 detik. Jangan bagikan kode ini kepada siapapun! @nuansasolution`;
+    await waGateway.sendNotification(phone, message);
+
+    Logger.auth('OTP_PHONE_VERIFY_SENT', `OTP sent to ${phone} for user ${userId}`);
+    return res.status(200).json({ success: true, message: 'Kode OTP telah dikirim ke WhatsApp Anda' });
+  } catch (error) {
+    Logger.error('AUTH', 'Request phone verify OTP error', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+/**
+ * VERIFY PHONE OTP
+ * POST /api/auth/verify-phone-otp
+ */
+exports.verifyPhoneOTP = async (req, res) => {
+  try {
+    const { phone, otp } = req.body;
+    const userId = req.user.id;
+
+    if (!phone || !otp) {
+      return res.status(400).json({ success: false, message: 'Data tidak lengkap' });
+    }
+
+    const verification = await OTPValidator.verifyOTP(userId, otp, 'phone_verify');
+    if (!verification.valid) {
+      return res.status(400).json({ success: false, message: verification.message });
+    }
+
+    await db.query('UPDATE users SET phone = ?, is_phone_verified = 1 WHERE id = ?', [phone, userId]);
+    Logger.auth('PHONE_VERIFIED', `User ${userId} verified phone ${phone}`);
+
+    return res.status(200).json({ success: true, message: 'WhatsApp berhasil diverifikasi!' });
+  } catch (error) {
+    Logger.error('AUTH', 'Verify phone OTP error', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+/**
+ * SETUP PASSWORD (For Google Users)
+ * POST /api/auth/setup-password
+ */
+exports.setupPassword = async (req, res) => {
+  try {
+    const { password } = req.body;
+    const userId = req.user.id;
+
+    if (!password || password.length < 6) {
+      return res.status(400).json({ success: false, message: 'Password minimal 6 karakter' });
+    }
+
+    const [userRows] = await db.query('SELECT is_phone_verified, password FROM users WHERE id = ?', [userId]);
+    const user = userRows[0];
+
+    if (!user.is_phone_verified) {
+      return res.status(403).json({ success: false, message: 'Silakan verifikasi WhatsApp Anda terlebih dahulu sebelum membuat password.' });
+    }
+
+    if (user.password) {
+      return res.status(400).json({ success: false, message: 'Password sudah dibuat.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await db.query('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, userId]);
+
+    Logger.auth('PASSWORD_SETUP_SUCCESS', `User ${userId} created password`);
+    return res.status(200).json({ success: true, message: 'Password berhasil dibuat!' });
+  } catch (error) {
+    Logger.error('AUTH', 'Setup password error', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+/**
  * LOGOUT
  * POST /api/auth/logout
  */

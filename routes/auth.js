@@ -14,6 +14,11 @@ router.post('/login', auth.login);
 router.get('/me', verifyToken, auth.me);
 router.post('/logout', verifyToken, auth.logout);
 
+// Security & WhatsApp Verification
+router.post('/request-phone-verify', verifyToken, auth.requestPhoneVerifyOTP);
+router.post('/verify-phone-otp', verifyToken, auth.verifyPhoneOTP);
+router.post('/setup-password', verifyToken, auth.setupPassword);
+
 // Delete Account
 router.post('/request-delete-otp', verifyToken, auth.requestDeleteOTP);
 router.post('/delete-account', verifyToken, auth.deleteAccount);
