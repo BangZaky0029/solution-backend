@@ -219,7 +219,9 @@ app.get('/auth/google/callback',
     );
 
     // Redirect to frontend with token
-    res.redirect(`${process.env.CLIENT_URL}/auth/google/success?token=${token}`);
+    // Gunakan PAYMENT_URL agar mengarah ke website pembayaran (React), bukan landing page utama
+    const redirectUrl = process.env.PAYMENT_URL || process.env.CLIENT_URL;
+    res.redirect(`${redirectUrl}/auth/google/success?token=${token}`);
   }
 );
 
