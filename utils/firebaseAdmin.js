@@ -1,5 +1,6 @@
 const admin = require('firebase-admin');
 const path = require('path');
+const fs = require('fs');
 const Logger = require('./logger');
 
 // Load environment variables for configuration
@@ -10,7 +11,19 @@ let db = null;
 
 if (serviceAccountPath) {
     try {
-        const serviceAccount = require(serviceAccountPath);
+        // Robust cleaning: remove trailing/leading whitespace and quotes
+        const cleanPath = serviceAccountPath.replace(/['"]/g, '').trim();
+        
+        // Use fs.readFileSync instead of require() for better reliability on absolute paths in Windows
+        const resolvedPath = path.isAbsolute(cleanPath) 
+            ? cleanPath 
+            : path.resolve(process.cwd(), cleanPath);
+            
+        if (!fs.existsSync(resolvedPath)) {
+            throw new Error(`File not found at: ${resolvedPath}`);
+        }
+
+        const serviceAccount = JSON.parse(fs.readFileSync(resolvedPath, 'utf8'));
 
         admin.initializeApp({
             credential: admin.credential.cert(serviceAccount),
