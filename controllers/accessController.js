@@ -21,39 +21,59 @@ const Logger = require('../utils/logger');
  */
 exports.checkAccess = async (req, res) => {
     try {
-        const { phone, feature_slug } = req.body;
+        const { phone, identifier, feature_slug } = req.body;
+        const targetIdentifier = identifier || phone;
 
         // Input validation
-        if (!phone || !feature_slug) {
+        if (!targetIdentifier || !feature_slug) {
             return res.status(400).json({
                 status: false,
-                message: 'Phone dan feature_slug wajib diisi'
+                message: 'Phone/Email dan feature_slug wajib diisi'
             });
         }
 
-        // Normalize phone number (remove non-digits, ensure starts with 62)
-        let normalizedPhone = phone.replace(/\D/g, '');
-        if (normalizedPhone.startsWith('0')) {
-            normalizedPhone = '62' + normalizedPhone.slice(1);
+        let userId = null;
+        const isEmail = targetIdentifier.includes('@');
+        const isPhone = /^\+?[0-9\s-]+$/.test(targetIdentifier) && targetIdentifier.replace(/\D/g, '').length >= 7;
+
+        if (isEmail) {
+            // Find user by email
+            const [users] = await db.query(
+                'SELECT id FROM users WHERE email = ? LIMIT 1',
+                [targetIdentifier.trim().toLowerCase()]
+            );
+            if (users.length > 0) userId = users[0].id;
+        } else if (isPhone) {
+            // Normalize and find by phone
+            let normalizedPhone = targetIdentifier.replace(/\D/g, '');
+            if (normalizedPhone.startsWith('0')) {
+                normalizedPhone = '62' + normalizedPhone.slice(1);
+            } else if (!normalizedPhone.startsWith('62') && normalizedPhone.length > 0) {
+                normalizedPhone = '62' + normalizedPhone;
+            }
+            const [users] = await db.query(
+                'SELECT id FROM users WHERE phone = ? LIMIT 1',
+                [normalizedPhone]
+            );
+            if (users.length > 0) userId = users[0].id;
+        } else {
+            // Find by name (exact match or similar)
+            const [users] = await db.query(
+                'SELECT id FROM users WHERE name = ? LIMIT 1',
+                [targetIdentifier.trim()]
+            );
+            if (users.length > 0) userId = users[0].id;
         }
 
-        Logger.info('ACCESS', `Check access: phone=${normalizedPhone}, feature=${feature_slug}`);
-
-        // 1. Find user by phone
-        const [users] = await db.query(
-            'SELECT id FROM users WHERE phone = ? LIMIT 1',
-            [normalizedPhone]
-        );
-
-        if (users.length === 0) {
-            Logger.info('ACCESS', `User not found: ${normalizedPhone}`);
+        if (!userId) {
+            Logger.info('ACCESS', `User not found for identifier: ${targetIdentifier}`);
             return res.json({
                 status: false,
-                message: 'User tidak ditemukan'
+                message: 'Data tidak ditemukan. Pastikan WhatsApp/Email/Nama sudah benar.'
             });
         }
 
-        const userId = users[0].id;
+        Logger.info('ACCESS', `Check access: user_id=${userId}, feature=${feature_slug}`);
 
         // 2. Find feature by slug
         const [features] = await db.query(
@@ -107,7 +127,7 @@ exports.checkAccess = async (req, res) => {
         Logger.info('ACCESS', `Access denied: user=${userId}, feature=${feature_slug}`);
         return res.json({
             status: false,
-            message: 'Subscription inactive or not found'
+            message: 'Subscription paket Anda belum aktif atau sudah kedaluwarsa.'
         });
 
     } catch (error) {
@@ -131,36 +151,56 @@ exports.checkAccess = async (req, res) => {
  */
 exports.checkMultipleAccess = async (req, res) => {
     try {
-        const { phone, feature_slugs } = req.body;
+        const { phone, identifier, feature_slugs } = req.body;
+        const targetIdentifier = identifier || phone;
 
-        if (!phone || !feature_slugs || !Array.isArray(feature_slugs)) {
+        if (!targetIdentifier || !feature_slugs || !Array.isArray(feature_slugs)) {
             return res.status(400).json({
                 status: false,
-                message: 'Phone dan feature_slugs (array) wajib diisi'
+                message: 'Phone/Email dan feature_slugs (array) wajib diisi'
             });
         }
 
-        // Normalize phone
-        let normalizedPhone = phone.replace(/\D/g, '');
-        if (normalizedPhone.startsWith('0')) {
-            normalizedPhone = '62' + normalizedPhone.slice(1);
+        let userId = null;
+        const isEmail = targetIdentifier.includes('@');
+        const isPhone = /^\+?[0-9\s-]+$/.test(targetIdentifier) && targetIdentifier.replace(/\D/g, '').length >= 7;
+
+        if (isEmail) {
+            // Find user by email
+            const [users] = await db.query(
+                'SELECT id FROM users WHERE email = ? LIMIT 1',
+                [targetIdentifier.trim().toLowerCase()]
+            );
+            if (users.length > 0) userId = users[0].id;
+        } else if (isPhone) {
+            // Normalize and find by phone
+            let normalizedPhone = targetIdentifier.replace(/\D/g, '');
+            if (normalizedPhone.startsWith('0')) {
+                normalizedPhone = '62' + normalizedPhone.slice(1);
+            } else if (!normalizedPhone.startsWith('62') && normalizedPhone.length > 0) {
+                normalizedPhone = '62' + normalizedPhone;
+            }
+            const [users] = await db.query(
+                'SELECT id FROM users WHERE phone = ? LIMIT 1',
+                [normalizedPhone]
+            );
+            if (users.length > 0) userId = users[0].id;
+        } else {
+            // Find by name
+            const [users] = await db.query(
+                'SELECT id FROM users WHERE name = ? LIMIT 1',
+                [targetIdentifier.trim()]
+            );
+            if (users.length > 0) userId = users[0].id;
         }
 
-        // Find user
-        const [users] = await db.query(
-            'SELECT id FROM users WHERE phone = ? LIMIT 1',
-            [normalizedPhone]
-        );
-
-        if (users.length === 0) {
+        if (!userId) {
             return res.json({
                 status: false,
                 message: 'User tidak ditemukan',
                 access: {}
             });
         }
-
-        const userId = users[0].id;
 
         // Get all requested features
         const [features] = await db.query(
