@@ -356,7 +356,7 @@ exports.login = async (req, res) => {
     Logger.auth('LOGIN_ATTEMPT', `Email: ${email}`);
 
     const [users] = await db.query(
-      'SELECT id, name, email, phone, password, is_verified FROM users WHERE email = ?',
+      'SELECT id, name, email, phone, password, is_verified, is_phone_verified FROM users WHERE email = ?',
       [email]
     );
 
@@ -413,7 +413,8 @@ exports.login = async (req, res) => {
         name: user.name,
         email: user.email,
         phone: PhoneValidator.formatDisplay(user.phone),
-        isVerified: user.is_verified
+        is_verified: user.is_verified,
+        is_phone_verified: user.is_phone_verified
       }
     });
 
@@ -649,6 +650,22 @@ exports.requestPhoneVerifyOTP = async (req, res) => {
       return res.status(400).json({ success: false, message: phoneValidation.message });
     }
 
+    const normalizedPhone = phoneValidation.normalized;
+
+    // ✅ CHECK: Phone already exists for ANOTHER user
+    const [existingPhone] = await db.query(
+      'SELECT id FROM users WHERE phone = ? AND id != ?',
+      [normalizedPhone, userId]
+    );
+
+    if (existingPhone.length > 0) {
+      Logger.auth('OTP_PHONE_VERIFY_FAILED', 'Phone already in use by another account', { phone: normalizedPhone, userId });
+      return res.status(400).json({
+        success: false,
+        message: 'Nomor WhatsApp ini sudah terdaftar di akun lain. Silakan gunakan nomor lain atau login ke akun tersebut.'
+      });
+    }
+
     const dailyLimit = await OTPValidator.checkDailyLimit(userId, 'phone_verify');
     if (dailyLimit.limited) {
       return res.status(429).json({ success: false, message: dailyLimit.message });
@@ -656,9 +673,9 @@ exports.requestPhoneVerifyOTP = async (req, res) => {
 
     const { otp } = await OTPValidator.createOTP(userId, 'phone_verify');
     const message = `Halo! Kode verifikasi WhatsApp Anda adalah: *${otp}*. Kode ini berlaku selama 90 detik. Jangan bagikan kode ini kepada siapapun! @nuansasolution`;
-    await waGateway.sendMessage(phone, message);
+    await waGateway.sendMessage(normalizedPhone, message);
 
-    Logger.auth('OTP_PHONE_VERIFY_SENT', `OTP sent to ${phone} for user ${userId}`);
+    Logger.auth('OTP_PHONE_VERIFY_SENT', `OTP sent to ${normalizedPhone} for user ${userId}`);
     return res.status(200).json({ success: true, message: 'Kode OTP telah dikirim ke WhatsApp Anda' });
   } catch (error) {
     Logger.error('AUTH', 'Request phone verify OTP error', error);
