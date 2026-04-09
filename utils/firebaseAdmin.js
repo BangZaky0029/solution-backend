@@ -41,11 +41,12 @@ if (serviceAccountPath) {
 }
 
 /**
- * Log an activity to Firestore
+ * Log an activity to Firestore (Optional)
  * @param {string} collection - Firestore collection name (e.g., 'activity_logs')
  * @param {object} data - Data to log
  */
 const logToFirestore = async (collection, data) => {
+    // Gracefully skip if Firebase is not initialized or database is missing
     if (!db) return null;
 
     try {
@@ -58,7 +59,8 @@ const logToFirestore = async (collection, data) => {
         const result = await db.collection(collection).add(logData);
         return result.id;
     } catch (error) {
-        console.error(`❌ [FIREBASE] Logging error to ${collection}:`, error.message);
+        // Only log warning, don't throw to prevent crashing the main activity logger
+        // console.warn(`⚠️ [FIREBASE] Firestore logging skipped: ${error.message}`);
         return null;
     }
 };
