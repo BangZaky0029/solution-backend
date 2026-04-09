@@ -201,34 +201,41 @@ router.get('/generator-insights', adminAuth, async (req, res) => {
   try {
     const { period = 'week', metric = 'total' } = req.query;
     
-    let interval = '7 DAY';
+    let whereClause = 'ga.clicked_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)';
     
     switch (period) {
       case 'today':
-        interval = '0 DAY';
+        whereClause = 'ga.clicked_at >= CURDATE()'; // Since 00:00:00 today
         break;
       case 'week':
-        interval = '7 DAY';
+        whereClause = 'ga.clicked_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)'; // Last 7 days including today
         break;
       case 'month':
-        interval = '30 DAY';
+        whereClause = 'ga.clicked_at >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)'; // Last 30 days
         break;
       case 'year':
-        interval = '365 DAY';
+        whereClause = 'ga.clicked_at >= DATE_SUB(CURDATE(), INTERVAL 364 DAY)'; // Last year
         break;
     }
 
     const selectMetric = metric === 'unique' 
-      ? 'COUNT(DISTINCT COALESCE(user_id, ip_address))' 
+      ? 'COUNT(DISTINCT COALESCE(ga.user_id, ga.ip_address))' 
       : 'COUNT(*)';
 
+    // We join with features table to get pretty names
+    // feature_code might have a leading slash, so we handle both cases
     const query = `
       SELECT 
-        feature_code as name,
+        COALESCE(f.name, ga.feature_code) as name,
         ${selectMetric} as value
-      FROM generator_analytics
-      WHERE clicked_at >= DATE_SUB(NOW(), INTERVAL ${interval})
-      GROUP BY feature_code
+      FROM generator_analytics ga
+      LEFT JOIN features f ON (
+        f.code = ga.feature_code 
+        OR CONCAT('/', f.code) = ga.feature_code 
+        OR f.code = REPLACE(ga.feature_code, '/', '')
+      )
+      WHERE ${whereClause}
+      GROUP BY name
       ORDER BY value DESC
       LIMIT 20
     `;
@@ -242,5 +249,6 @@ router.get('/generator-insights', adminAuth, async (req, res) => {
 });
 
 module.exports = router;
+
 
 
