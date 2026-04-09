@@ -96,12 +96,13 @@ app.use(helmet({
 const allowedOrigins = [
   'https://nuansasolution.id',
   'https://www.nuansasolution.id',
-  'https://payment.nuansasolution.id',
+  'https://generator.nuansasolution.id',    // Portal utama (renamed from payment.)
   'https://admin-controller.nuansasolution.id',
   'https://api.nuansasolution.id',
+  // Semua generator subpaths menggunakan domain utama: nuansasolution.id/generator-surat/*
   process.env.ADMIN_URL,
   process.env.CLIENT_URL,
-  process.env.PAYMENT_URL, // Pastikan ini juga dipanggil
+  process.env.PAYMENT_URL,
   'http://localhost:3000',
   'http://localhost:5173',
   'http://localhost:5174'
@@ -200,13 +201,13 @@ app.use('/health', healthRoutes);
 // ================================
 app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
 
-app.get('/auth/google/callback', 
+app.get('/auth/google/callback',
   passport.authenticate('google', { failureRedirect: process.env.CLIENT_URL + '/login?error=auth_failed' }),
   (req, res) => {
     // Auth Successful
     const user = req.user;
     const jwt = require('jsonwebtoken');
-    
+
     // Generate JWT
     const token = jwt.sign(
       {
