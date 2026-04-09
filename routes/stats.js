@@ -25,9 +25,19 @@ router.get('/', adminAuth, async (req, res) => {
     stats.confirmedPayments = confirmed.count;
 
     const [[active]] = await db.query(
-      'SELECT COUNT(*) as count FROM user_tokens WHERE expired_at > NOW()'
+      'SELECT COUNT(*) as count FROM user_tokens WHERE expired_at > NOW() AND is_active = 1'
     );
     stats.activeSubscriptions = active.count;
+
+    const [[expired]] = await db.query(
+      'SELECT COUNT(*) as count FROM user_tokens WHERE expired_at <= NOW()'
+    );
+    stats.expiredSubscriptions = expired.count;
+
+    const [[verified]] = await db.query(
+      'SELECT COUNT(*) as count FROM users WHERE is_verified = 1'
+    );
+    stats.verifiedUsers = verified.count;
 
     const [[revenue]] = await db.query(
       'SELECT SUM(amount) as total FROM payments WHERE status="confirmed"'
@@ -113,16 +123,29 @@ router.get('/user-growth', adminAuth, async (req, res) => {
 
     const query = `
       SELECT 
-        DATE_FORMAT(created_at, ?) as label,
-        COUNT(*) as total,
-        SUM(CASE WHEN is_verified = 1 THEN 1 ELSE 0 END) as verified
-      FROM users
-      WHERE created_at >= DATE_SUB(NOW(), INTERVAL ${interval})
+        label,
+        SUM(total) as total,
+        SUM(verified) as verified,
+        SUM(active) as active,
+        SUM(expired) as expired
+      FROM (
+        -- New Users & Verifications
+        SELECT DATE_FORMAT(created_at, ?) as label, COUNT(*) as total, SUM(CASE WHEN is_verified = 1 THEN 1 ELSE 0 END) as verified, 0 as active, 0 as expired
+        FROM users WHERE created_at >= DATE_SUB(NOW(), INTERVAL ${interval}) GROUP BY label
+        UNION ALL
+        -- New Activations
+        SELECT DATE_FORMAT(activated_at, ?) as label, 0, 0, COUNT(*), 0
+        FROM user_tokens WHERE activated_at >= DATE_SUB(NOW(), INTERVAL ${interval}) GROUP BY label
+        UNION ALL
+        -- New Expirations
+        SELECT DATE_FORMAT(expired_at, ?) as label, 0, 0, 0, COUNT(*)
+        FROM user_tokens WHERE expired_at >= DATE_SUB(NOW(), INTERVAL ${interval}) GROUP BY label
+      ) combined
       GROUP BY label
       ORDER BY label ASC
     `;
 
-    const [rows] = await db.query(query, [format]);
+    const [rows] = await db.query(query, [format, format, format]);
     res.json(rows);
   } catch (error) {
     res.status(500).json({ message: error.message });
