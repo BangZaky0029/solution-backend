@@ -10,202 +10,21 @@ const PhoneValidator = require('../utils/phoneValidator');
 const waGateway = require('../utils/whatsappGateway');
 
 /**
- * REGISTER - OTP ditampilkan di frontend (NO WHATSAPP)
+ * REGISTER - DISABLED (MIGRATED TO GOOGLE AUTH)
  * POST /api/auth/register
  */
 exports.register = async (req, res) => {
+  return res.status(403).json({
+    success: false,
+    message: 'Registrasi manual telah dinonaktifkan. Silakan gunakan tombol "Lanjutkan dengan Google" untuk membuat akun baru.'
+  });
+
+  /* --- LEGACY REGISTER CODE (DISABLED) ---
   try {
     const { name, email, phone, password } = req.body;
-
-    // Validation
-    if (!name || !email || !phone || !password) {
-      Logger.auth('REGISTER_FAILED', 'Missing required fields', { email, phone });
-      return res.status(400).json({
-        success: false,
-        message: 'Data tidak lengkap'
-      });
-    }
-
-    // 🔥 VALIDATE PHONE FORMAT
-    const phoneValidation = PhoneValidator.validate(phone);
-    if (!phoneValidation.valid) {
-      Logger.auth('REGISTER_FAILED', 'Invalid phone format', { phone });
-      return res.status(400).json({
-        success: false,
-        message: phoneValidation.message
-      });
-    }
-
-    const normalizedPhone = phoneValidation.normalized;
-
-    Logger.auth('REGISTER_ATTEMPT', `Email: ${email}, Phone: ${normalizedPhone}`);
-
-    // ✅ CHECK: Email already exists
-    const [existingEmail] = await db.query(
-      'SELECT id FROM users WHERE email = ?',
-      [email]
-    );
-
-    if (existingEmail.length > 0) {
-      Logger.auth('REGISTER_FAILED', 'Email already exists', { email });
-      return res.status(400).json({
-        success: false,
-        message: 'Email sudah terdaftar'
-      });
-    }
-
-    // ✅ CHECK: Phone already exists
-    const [existingPhone] = await db.query(
-      'SELECT id, name FROM users WHERE phone = ?',
-      [normalizedPhone]
-    );
-
-    if (existingPhone.length > 0) {
-      Logger.auth('REGISTER_FAILED', 'Phone already registered', { phone: normalizedPhone });
-      return res.status(400).json({
-        success: false,
-        message: 'Nomor WhatsApp sudah terdaftar. Silakan gunakan nomor lain.'
-      });
-    }
-
-    // Hash password
-    const hashedPassword = bcrypt.hashSync(password, 10);
-
-    // Insert user
-    const [result] = await db.query(
-      'INSERT INTO users (name, email, phone, password) VALUES (?, ?, ?, ?)',
-      [name, email, normalizedPhone, hashedPassword]
-    );
-
-    const userId = result.insertId;
-
-    Logger.auth('REGISTER_SUCCESS', `User created: ${userId}`, { email, phone: normalizedPhone });
-
-    // Check rate limit
-    const rateLimit = await OTPValidator.checkRateLimit(userId);
-    if (rateLimit.limited) {
-      return res.status(429).json({
-        success: false,
-        message: rateLimit.message
-      });
-    }
-
-    Logger.auth('REGISTER_SUCCESS', `User created: ${userId}`, { email, phone: normalizedPhone });
-
-    // 🔥 AUTO-VERIFY (Since OTP is removed as per request)
-    await db.query('UPDATE users SET is_verified = 1 WHERE id = ?', [userId]);
-    Logger.auth('AUTO_VERIFY', `User ${userId} auto-verified (OTP disabled)`);
-
-    // Create trial package
-    const [trialPackages] = await db.query(
-      'SELECT id, duration_days, name FROM packages WHERE is_trial = 1 AND is_active = 1 LIMIT 1'
-    );
-
-    if (trialPackages.length > 0) {
-      // 🔥 ANTI-ABUSE CHECK
-      // Check if user (phone/email) has deleted account AND used trial before
-      const [history] = await db.query(
-        `SELECT id FROM deleted_users_history 
-         WHERE (phone = ? OR email = ?) AND has_used_trial = 1 LIMIT 1`,
-        [normalizedPhone, email]
-      );
-
-      if (history.length > 0) {
-        Logger.info('TRIAL_SKIPPED', `Trial DENIED for user ${userId} (Abuse Prevention - Previous Account Found)`);
-      } else {
-        const trial = trialPackages[0];
-
-        await db.query(
-          `INSERT INTO user_tokens
-           (user_id, package_id, token, activated_at, expired_at, is_active, is_trial)
-           VALUES (?, ?, ?, NOW(), DATE_ADD(NOW(), INTERVAL ? DAY), 1, 1)`,
-          [userId, trial.id, uuid(), trial.duration_days]
-        );
-
-        Logger.info('TRIAL', `Trial package activated for user ${userId}`, { packageName: trial.name });
-      }
-    }
-
-    // 🔥 WhatsApp OTP Sending Disabled (Migrated to Google Auth)
-    let whatsappSent = false;
-    /*
-    try {
-      const connected = await waGateway.isConnected();
-      if (connected) {
-        await waGateway.sendOTP(normalizedPhone, name, otp, 'register');
-        whatsappSent = true;
-        Logger.whatsapp('REGISTER_OTP', `OTP sent to ${normalizedPhone}`);
-      }
-    } catch (waError) {
-      Logger.error('WHATSAPP', 'Failed to send registration OTP', waError);
-    }
-    */
-
-    // Determine trial response data
-    let trialResponse = null;
-    let trialStatus = 'unavailable';
-
-    if (trialPackages.length > 0) {
-      const trial = trialPackages[0];
-      // Re-query/re-check if we actually inserted (based on history check above)
-      // Since we didn't store the result of the check in a variable accessible here easily without refactoring,
-      // let's assume we need to return what happened. 
-
-      // Refactoring slightly to use a flag for trial granted
-      // We need to move the check logic up or use a variable. 
-      // Let's rely on the fact we already checked history.
-
-      // Re-running safe check for response construction:
-      const [historyCheck] = await db.query(
-        `SELECT id FROM deleted_users_history 
-         WHERE (phone = ? OR email = ?) AND has_used_trial = 1 LIMIT 1`,
-        [normalizedPhone, email]
-      );
-
-      if (historyCheck.length > 0) {
-        trialStatus = 'denied'; // Was available but denied due to abuse
-      } else {
-        trialStatus = 'granted';
-        trialResponse = {
-          packageName: trial.name,
-          durationDays: trial.duration_days
-        };
-      }
-    }
-
-    const responseData = {
-      success: true,
-      message: 'Registrasi berhasil! Silakan login ke akun Anda.',
-      otpSent: false,
-      user: {
-        email,
-        name,
-        phone: PhoneValidator.formatDisplay(normalizedPhone)
-      },
-      trialPackage: trialResponse, // Only present if granted
-      trialStatus: trialStatus // 'granted', 'denied', 'unavailable'
-    };
-
-    // Log activity (Centralized: Handles Firebase, Sheets, and WhatsApp)
-    ActivityLogger.log('REGISTER', {
-      user_id: userId || null,
-      name,
-      email,
-      phone: PhoneValidator.formatDisplay(normalizedPhone),
-      trialStatus: trialStatus === 'granted' ? 'Diberikan (Trial)' : 
-                   trialStatus === 'denied' ? 'Ditolak (Anti-Abuse)' : 'Tidak Tersedia',
-      is_verified: 0 // New users are not verified yet
-    }).catch(console.error);
-
-    return res.status(200).json(responseData);
-
-  } catch (error) {
-    Logger.error('AUTH', 'Register error', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Terjadi kesalahan server'
-    });
-  }
+    ...
+  } catch (error) { ... }
+  --- END LEGACY --- */
 };
 
 /**
