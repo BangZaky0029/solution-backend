@@ -169,4 +169,78 @@ router.get('/package-popularity', adminAuth, async (req, res) => {
   }
 });
 
+const optionalAuth = require('../middlewares/optionalAuth');
+
+// ... existing routes ...
+
+// POST /api/stats/track-generator (Track generator click)
+router.post('/track-generator', optionalAuth, async (req, res) => {
+  try {
+    const { code } = req.body;
+    const userId = req.user ? req.user.id : null;
+    const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+
+    if (!code) {
+      return res.status(400).json({ success: false, message: 'Feature code is required' });
+    }
+
+    await db.query(
+      'INSERT INTO generator_analytics (user_id, feature_code, ip_address) VALUES (?, ?, ?)',
+      [userId, code, ip]
+    );
+
+    res.json({ success: true, message: 'Activity tracked' });
+  } catch (error) {
+    console.error('[TRACKING_ERROR]', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// GET /api/stats/generator-insights (Admin reporting)
+router.get('/generator-insights', adminAuth, async (req, res) => {
+  try {
+    const { period = 'week', metric = 'total' } = req.query;
+    
+    let interval = '7 DAY';
+    
+    switch (period) {
+      case 'today':
+        interval = '0 DAY';
+        break;
+      case 'week':
+        interval = '7 DAY';
+        break;
+      case 'month':
+        interval = '30 DAY';
+        break;
+      case 'year':
+        interval = '365 DAY';
+        break;
+    }
+
+    const selectMetric = metric === 'unique' 
+      ? 'COUNT(DISTINCT COALESCE(user_id, ip_address))' 
+      : 'COUNT(*)';
+
+    const query = `
+      SELECT 
+        feature_code as name,
+        ${selectMetric} as value
+      FROM generator_analytics
+      WHERE clicked_at >= DATE_SUB(NOW(), INTERVAL ${interval})
+      GROUP BY feature_code
+      ORDER BY value DESC
+      LIMIT 20
+    `;
+
+    const [rows] = await db.query(query);
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error('[INSIGHTS_ERROR]', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 module.exports = router;
+
+
